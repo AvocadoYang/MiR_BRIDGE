@@ -1,0 +1,23 @@
+{
+    "python.defaultInterpreterPath": "${workspaceFolder}/src/amr_core/.venv/bin/python",
+    "python.analysis.extraPaths": [
+        "src/amr_core/.venv/lib/python3.8/site-packages"
+    ],
+    "python.venvPath": "${workspaceFolder}/src/amr_core",
+    "ruff.enable": true,
+    "ruff.organizeImports": true,
+    "ruff.nativeServer": true,
+    "ruff.fixAll": true,
+    "ruff.showNotifications": "onWarning",
+    "cSpell.enabled": false,
+    "[python]": {
+        "cSpell.enabled": false,
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll": true,
+            "source.organizeImports": true
+        },
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "python.linting.ruffEnabled": true
+    }
+}
