@@ -1,7 +1,7 @@
 {
     "python.defaultInterpreterPath": "${workspaceFolder}/src/amr_core/.venv/bin/python",
     "python.analysis.extraPaths": [
-        "src/amr_core/.venv/lib/python3.8/site-packages"
+        "src/amr_core/.venv/lib/python3.13/site-packages"
     ],
     "python.venvPath": "${workspaceFolder}/src/amr_core",
     "ruff.enable": true,
