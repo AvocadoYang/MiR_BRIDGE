@@ -31,7 +31,7 @@ class Connect_impl:
             )
 
             logger.info(
-                f"connected to rabbitMQ node: 'amqp://{config.RABBIT_MQ_USER}:{config.RABBIT_MQ_PASSWORD}@{config.RABBIT_MQ_HOST}:{config.RABBIT_MQ_PORT}/',",
+                f"connected to rabbitMQ node: 'amqp://{config.RABBIT_MQ_USER}:{config.RABBIT_MQ_PASSWORD}@{config.RABBIT_MQ_HOST}:{config.RABBIT_MQ_PORT}/'",
             )
             self.connection.close_callbacks.add(self._on_close)
 

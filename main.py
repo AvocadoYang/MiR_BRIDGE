@@ -8,8 +8,7 @@ from fastapi import FastAPI
 from src.configs import config
 from src.helper.helper import format_date
 from src.logger import logger
-from src.rabbitmq import Rabbit_client_async
-from src.service import WebServer
+from src.service import Rabbit_client_async, WebServer
 
 
 class MiR_BRIDGE:
