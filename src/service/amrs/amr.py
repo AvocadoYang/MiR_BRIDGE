@@ -83,8 +83,8 @@ class AMR:
             topic = payload.get('topic')
 
             if topic == '/robot_pose':
-                msg_data = payload.get('msg')  # ROS Bridge 的資料通常包在 'msg' 欄位裡
-                # print(f'【{self.amrId} 座標更新】: {msg_data}')
+                msg_data = payload.get('msg')
+
             else:
                 pass
                 # print(f'【{self.amrId} 收到其他 ROS 訊息】: {payload}')
