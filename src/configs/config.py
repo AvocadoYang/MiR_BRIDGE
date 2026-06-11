@@ -4,11 +4,12 @@ import yaml
 from loguru import logger
 from pydantic import BaseModel
 
-cwd = pathlib.Path(__file__).parent / "config.yaml"
+cwd = pathlib.Path(__file__).parent / 'config.yaml'
 
 
 class Config(BaseModel):
-    RABBIT_MQ_HOST: str = "127.0.0.1"
+    FILE_PATH: str = 'kenmec/'
+    RABBIT_MQ_HOST: str = '127.0.0.1'
     RABBIT_MQ_PORT: int = 5672
     RABBIT_MQ_UI_PORT: int = 15672
     RABBIT_NODE_NAME: str
@@ -16,7 +17,7 @@ class Config(BaseModel):
     RABBIT_MQ_PASSWORD: str
     MISSION_CONTROL_HOST: str
     MISSION_CONTROL_PORT: int
-    AMR_SERVICE_BRIDGE_HOST: str = "127.0.0.1"
+    AMR_SERVICE_BRIDGE_HOST: str = '127.0.0.1'
     AMR_SERVICE_BRIDGE_POST: int = 8532
     MIR_ACCOUNT: str
     MIR_PASSWORD: str
@@ -28,10 +29,10 @@ def _load_yml_config(path: pathlib.Path):
         return yaml.safe_load(path.read_text())
 
     except FileNotFoundError as error:
-        message = "Error: yml config file not found."
+        message = 'Error: yml config file not found.'
         logger.error(message)
         raise FileNotFoundError(error, message) from error
-    except Exception as e:
+    except Exception:
         raise
 
 
