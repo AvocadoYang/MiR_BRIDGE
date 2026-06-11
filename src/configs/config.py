@@ -19,8 +19,8 @@ class Config(BaseModel):
     MISSION_CONTROL_PORT: int
     AMR_SERVICE_BRIDGE_HOST: str = '127.0.0.1'
     AMR_SERVICE_BRIDGE_POST: int = 8532
-    MIR_ACCOUNT: str
-    MIR_PASSWORD: str
+    MIR_ACCOUNT: str = 'distributor'
+    MIR_PASSWORD: str = 'distributor'
 
 
 def _load_yml_config(path: pathlib.Path):

@@ -1,5 +1,7 @@
 from typing import TypedDict
 
+from src.service import AMR
+
 
 class AMR_INFO(TypedDict):
     full_name: str
@@ -10,3 +12,5 @@ class AMR_INFO(TypedDict):
 class AMR_INFO_DETAIL(TypedDict):
     ip: str
     serialNum: str
+    amrId: str
+    amr: AMR

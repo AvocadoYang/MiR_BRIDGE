@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import json
 import time
 from contextlib import asynccontextmanager
@@ -12,19 +14,21 @@ from src.configs import config
 from src.dtypes import AMR_INFO, AMR_INFO_DETAIL
 from src.helper.helper import format_date
 from src.logger import logger
-from src.service import Rabbit_client_async, WebServer
+from src.service import AMR, Rabbit_client_async, WebServer
 
 
 class MiR_BRIDGE:
     def __init__(self):
         self.register_table: dict[str, AMR_INFO_DETAIL] = {}
         self.show_sync_register_table_error_log = True
+        self.api_token = self.api_token_gen()
 
         self.rabbitmq: Rabbit_client_async = Rabbit_client_async()
         self.web_server: WebServer = WebServer(self.service_launch)
 
     @asynccontextmanager
     async def service_launch(self, app: FastAPI):
+        await self.create_amr_instance()
         success = await self.rabbitmq.connect()
         if not success:
             self.rabbitmq._trigger_reconnect()
@@ -34,6 +38,17 @@ class MiR_BRIDGE:
             yield
         finally:
             await self.rabbitmq.close()
+
+    async def create_amr_instance(self):
+        amrs_serialNum = self.register_table.keys()
+        for serialNum in amrs_serialNum:
+            amr_info = self.register_table[serialNum]
+            amr = AMR(
+                mac_address=serialNum,
+                ip=amr_info['ip'],
+                amrId=amr_info['amrId'],
+                api_token=self.api_token,
+            )
 
     def sync_register_table(self):
         try:
@@ -52,7 +67,10 @@ class MiR_BRIDGE:
                 amr_info.model_dump()
 
             self.register_table = {
-                item['serialNum']: {'full_name': item['full_name'], 'ip': item['ip']}
+                item['serialNum']: {
+                    'amrId': item['full_name'],
+                    'ip': item['ip'],
+                }
                 for item in data
             }
 
@@ -72,6 +90,16 @@ class MiR_BRIDGE:
                 logger.error(f'sync register table failed: {str(e)}')
                 self.show_sync_register_table_error_log = False
         return False
+
+    def api_token_gen(self):
+
+        password_hash = hashlib.sha256(f'{config.MIR_PASSWORD}'.encode()).hexdigest()
+
+        raw = f'{config.MIR_ACCOUNT}:{password_hash}'
+
+        token = base64.b64encode(raw.encode()).decode()
+
+        return 'Basic ' + token
 
 
 if __name__ == '__main__':

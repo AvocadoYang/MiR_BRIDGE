@@ -4,8 +4,8 @@ RABBIT_MQ_PORT: 5672
 RABBIT_NODE_NAME: rabbit@rabbit1-101
 
 
-MIR_ACCOUNT: kenmec
-MIR_PASSWORD: kenmec
+# MIR_ACCOUNT: kenmec
+# MIR_PASSWORD: kenmec
 
 
 RABBIT_MQ_USER: kenmec
