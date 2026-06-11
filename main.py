@@ -1,5 +1,4 @@
-import base64
-import hashlib
+import asyncio
 import json
 import time
 from contextlib import asynccontextmanager
@@ -21,14 +20,17 @@ class MiR_BRIDGE:
     def __init__(self):
         self.register_table: dict[str, AMR_INFO_DETAIL] = {}
         self.show_sync_register_table_error_log = True
-        self.api_token = self.api_token_gen()
 
         self.rabbitmq: Rabbit_client_async = Rabbit_client_async()
         self.web_server: WebServer = WebServer(self.service_launch)
 
     @asynccontextmanager
     async def service_launch(self, app: FastAPI):
-        await self.create_amr_instance()
+        """
+        event loop entry point for driving all service
+        """
+
+        asyncio.create_task(self.create_amr_instance())
         success = await self.rabbitmq.connect()
         if not success:
             self.rabbitmq._trigger_reconnect()
@@ -40,17 +42,24 @@ class MiR_BRIDGE:
             await self.rabbitmq.close()
 
     async def create_amr_instance(self):
-        amrs_serialNum = self.register_table.keys()
-        for serialNum in amrs_serialNum:
-            amr_info = self.register_table[serialNum]
-            amr = AMR(
-                mac_address=serialNum,
-                ip=amr_info['ip'],
-                amrId=amr_info['amrId'],
-                api_token=self.api_token,
-            )
+        """
+        create instance of AMR and try to get mir token for websocket
+        """
+
+        task = []
+
+        for serialNum, amr_info in self.register_table.items():
+            amr = AMR(mac_address=serialNum, ip=amr_info['ip'], amrId=amr_info['amrId'])
+            amr_info['amr'] = amr
+            task.append(asyncio.create_task(amr.get_MiR_info()))
+
+        logger.info(f"currently obtaining mir's token for {len(task)} amr")
 
     def sync_register_table(self):
+        """
+        responsible for fetching AMR registration info; retries until successful.
+
+        """
         try:
             url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/amr/mi-serial-amr'
             response = requests.get(url)
@@ -67,10 +76,12 @@ class MiR_BRIDGE:
                 amr_info.model_dump()
 
             self.register_table = {
-                item['serialNum']: {
-                    'amrId': item['full_name'],
-                    'ip': item['ip'],
-                }
+                item['serialNum']: AMR_INFO_DETAIL(
+                    amrId=item['full_name'],
+                    ip=item['ip'],
+                    serialNum=item['serialNum'],
+                    amr=None,
+                )
                 for item in data
             }
 
@@ -90,16 +101,6 @@ class MiR_BRIDGE:
                 logger.error(f'sync register table failed: {str(e)}')
                 self.show_sync_register_table_error_log = False
         return False
-
-    def api_token_gen(self):
-
-        password_hash = hashlib.sha256(f'{config.MIR_PASSWORD}'.encode()).hexdigest()
-
-        raw = f'{config.MIR_ACCOUNT}:{password_hash}'
-
-        token = base64.b64encode(raw.encode()).decode()
-
-        return 'Basic ' + token
 
 
 if __name__ == '__main__':

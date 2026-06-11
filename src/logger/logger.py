@@ -20,13 +20,15 @@ log_file_path = os.path.join(absolute_path, '{time:YYYY-MM-DD}.log')
 heartbeat_file_path = os.path.join(absolute_path, 'heartbeat_{time:YYYY-MM-DD}.log')
 
 logger.remove()
+
+logger = logger.bind(type='')
 logger.level('INFO', color='<fg 151>')
 logger.level('MQ', no=15, color='<fg 146>')
 
 logger.add(
     sys.stdout,
     filter=lambda record: record['extra'].get('type') != 'heartbeat',
-    format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level:7}</level> | {message}',
+    format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> <blue>{extra[type]}</blue> | <level>{level:7}</level> | {message}',
 )
 
 
@@ -38,7 +40,7 @@ logger.add(
     compression='zip',
     encoding='utf-8',
     enqueue=True,
-    format='{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}',
+    format='{time:YYYY-MM-DD HH:mm:ss} {extra[type]} | {level} | {message}',
 )
 
 

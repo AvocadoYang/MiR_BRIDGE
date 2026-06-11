@@ -1,3 +1,3 @@
 from .amr import AMR
 
-__init__ = [AMR]
+__init__ = ['AMR']

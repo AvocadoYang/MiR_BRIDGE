@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import TypedDict, Union
 
 from src.service import AMR
 
@@ -13,4 +13,4 @@ class AMR_INFO_DETAIL(TypedDict):
     ip: str
     serialNum: str
     amrId: str
-    amr: AMR
+    amr: Union[AMR, None]
