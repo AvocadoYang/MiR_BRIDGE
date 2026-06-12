@@ -1,13 +1,12 @@
 import asyncio
-from collections.abc import Coroutine
-from typing import Any, Callable, Optional
+from typing import Optional
 
 import aio_pika
 from aio_pika.abc import (
     AbstractChannel,
     AbstractConnection,
-    AbstractExchange,
 )
+from reactivex.subject import Subject
 
 from src.configs import config
 from src.logger import logger
@@ -16,12 +15,8 @@ from src.logger import logger
 class Connect_impl:
     def __init__(
         self,
-        resource_init: Callable[[], Coroutine[Any, Any, Any]],
-        exchangeList: dict[str, AbstractExchange],
     ):
 
-        self.init_fn = resource_init
-        self.exchangeList = exchangeList
         self.connection: Optional[AbstractConnection] = None
         self.channel: Optional[AbstractChannel] = None
 
@@ -30,6 +25,8 @@ class Connect_impl:
         self._reconnect_task: Optional[asyncio.Task] = None
 
         self._show_connect_logger = True
+
+        self.rabbit_is_connect: Subject[bool] = Subject()
 
     async def connect(self):
         try:
@@ -46,9 +43,9 @@ class Connect_impl:
 
             self.channel = await self.connection.channel()
             await self.channel.set_qos(prefetch_count=10)
-            await self.init_fn()
 
             self._show_connect_logger = True
+            self.rabbit_is_connect.on_next(True)
 
             return True
 
@@ -84,6 +81,7 @@ class Connect_impl:
                 'RabbitMQ connection lost unexpectedly (Remote server disconnected or heartbeat timeout)'
             )
         self._reset()
+        self.rabbit_is_connect.on_next(False)
         self._trigger_reconnect()
 
     def _trigger_reconnect(self):
@@ -108,4 +106,3 @@ class Connect_impl:
     def _reset(self):
         self.connection = None
         self.channel = None
-        self.exchangeList.clear()

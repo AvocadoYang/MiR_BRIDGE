@@ -1,3 +1,4 @@
+import asyncio
 from typing import Literal
 
 from aio_pika.abc import AbstractExchange, ExchangeParamType
@@ -12,7 +13,9 @@ from .type import RABBIT_CREATE_EX_OPTION, RABBIT_CREATE_QUEUE_OPTIONS
 class Rabbit_client_async(Connect_impl):
     def __init__(self):
         self._exchanges: dict[str, AbstractExchange] = {}
-        super().__init__(resource_init=self.resource_init, exchangeList=self._exchanges)
+        super().__init__()
+
+        self.rabbit_is_connect.subscribe(self.rabbitmq_connect_handler)
 
     async def resource_init(self):
         logger.info('create RabbitMQ [EX] resource')
@@ -113,3 +116,16 @@ class Rabbit_client_async(Connect_impl):
         queue = await self.create_queue(queue_name=queue_name, options=q_options)
         assert queue is not None
         await queue.bind(exchange=exchange, routing_key=routing_key)
+
+    def rabbitmq_connect_handler(self, is_connect: bool):
+        if is_connect:
+            asyncio.create_task(self.resource_init())
+        else:
+            logger.info('delete RabbitMQ [EX] resource')
+            self._exchanges.clear()
+
+    def consume_queue(self):
+        pass
+
+    def stop_consume_queue(self):
+        pass

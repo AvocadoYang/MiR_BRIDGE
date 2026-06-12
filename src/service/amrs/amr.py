@@ -21,6 +21,8 @@ class AMR:
         self.got_mir_token = False
         self.mir_token: str = ''
 
+        rabbit_service.rabbit_is_connect.subscribe(self.rabbitmq_connect_handler)
+
     async def get_MiR_info(self):
         url = f'http://{self.ip}/api/v2.0.0/users/auth'
         while not self.got_mir_token:
@@ -106,3 +108,6 @@ class AMR:
 
         except json.JSONDecodeError:
             print(f'無法解析的非 JSON 原始訊息: {raw_message}')
+
+    def rabbitmq_connect_handler(self, is_connect: bool):
+        print(is_connect)

@@ -56,7 +56,6 @@ class MiR_BRIDGE:
             )
             amr_info['amr'] = amr
             task.append(asyncio.create_task(amr.get_MiR_info()))
-
         logger.info(f"currently obtaining mir's token for {len(task)} amr")
 
     def sync_register_table(self):
