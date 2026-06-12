@@ -5,11 +5,15 @@ import httpx
 import websockets
 
 from src.logger import logger
+from src.service.rabbitmq import Rabbit_client_async
 from src.service.webService import headers
+
+from .type import RobotStatus, TFMessage
 
 
 class AMR:
-    def __init__(self, mac_address, ip, amrId):
+    def __init__(self, mac_address: str, ip: str, amrId: str, rabbit_service: Rabbit_client_async):
+        self.rabbit_service = rabbit_service
         self.mac_address: str = mac_address
         self.ip: str = ip
         self.amrId: str = amrId
@@ -47,12 +51,20 @@ class AMR:
 
         while True:
             try:
-                async with websockets.connect(url, additional_headers=cookie_header) as websocket:
+                async with websockets.connect(
+                    url, additional_headers=cookie_header, ping_interval=1.5, ping_timeout=1.5
+                ) as websocket:
                     self.ws = websocket
-                    logger.bind(type=self.amrId).info('ROS Bridge connect successfully')
 
-                    sub_robot = {'op': 'subscribe', 'topic': '/robot_pose'}
-                    await websocket.send(json.dumps(sub_robot))
+                    topics_to_subscribe = ['/tf', '/robot_status']
+
+                    for topic in topics_to_subscribe:
+                        sub_msg = {'op': 'subscribe', 'topic': topic}
+                        await websocket.send(json.dumps(sub_msg))
+
+                    logger.bind(type=self.amrId).info(
+                        'ROS Bridge connect successfully, QAMS bridge was connect with amr.'
+                    )
 
                     async for message in websocket:
                         if isinstance(message, bytes):
@@ -82,8 +94,11 @@ class AMR:
             payload = json.loads(raw_message)
             topic = payload.get('topic')
 
-            if topic == '/robot_pose':
-                msg_data = payload.get('msg')
+            if topic == '/tf':
+                pose_msg_data: TFMessage = payload.get('msg')
+
+            if topic == '/robot_status':
+                status_msg_data: RobotStatus = payload.get('msg')
 
             else:
                 pass

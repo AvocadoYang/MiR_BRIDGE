@@ -20,9 +20,8 @@ class MiR_BRIDGE:
     def __init__(self):
         self.register_table: dict[str, AMR_INFO_DETAIL] = {}
         self.show_sync_register_table_error_log = True
-
         self.rabbitmq: Rabbit_client_async = Rabbit_client_async()
-        self.web_server: WebServer = WebServer(self.service_launch)
+        self.web_server: WebServer = WebServer(self.service_launch, self.register_table)
 
     @asynccontextmanager
     async def service_launch(self, app: FastAPI):
@@ -49,7 +48,12 @@ class MiR_BRIDGE:
         task = []
 
         for serialNum, amr_info in self.register_table.items():
-            amr = AMR(mac_address=serialNum, ip=amr_info['ip'], amrId=amr_info['amrId'])
+            amr = AMR(
+                mac_address=serialNum,
+                ip=amr_info['ip'],
+                amrId=amr_info['amrId'],
+                rabbit_service=self.rabbitmq,
+            )
             amr_info['amr'] = amr
             task.append(asyncio.create_task(amr.get_MiR_info()))
 
@@ -75,15 +79,12 @@ class MiR_BRIDGE:
                 amr_info = AMR_INFO_SCHEMA(**amr)
                 amr_info.model_dump()
 
-            self.register_table = {
-                item['serialNum']: AMR_INFO_DETAIL(
-                    amrId=item['full_name'],
-                    ip=item['ip'],
-                    serialNum=item['serialNum'],
-                    amr=None,
-                )
-                for item in data
-            }
+                self.register_table[amr['serialNum']] = {
+                    'amrId': amr['full_name'],
+                    'ip': amr['ip'],
+                    'serialNum': amr['serialNum'],
+                    'amr': None,
+                }
 
             tux_text = cowsay.get_output_string(
                 'tux',

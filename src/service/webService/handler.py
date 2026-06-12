@@ -1,6 +1,41 @@
 # exceptions.py
+import json
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Union
+
+from fastapi import Request, Response
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
+
+
+class CustomSuccessRoute(APIRoute):
+    def get_route_handler(self) -> Callable:
+        original_route_handler = super().get_route_handler()
+
+        async def custom_route_handler(request: Request) -> Response:
+            response: Any = await original_route_handler(request)
+            success_format = {
+                'success': True,
+                'code': 200,
+                'message': f'Operation successful [{request.method}]',
+                'data': None,
+            }
+
+            if isinstance(response, Response):
+                if 'application/json' in response.headers.get('content-type', ''):
+                    try:
+                        data = json.loads(response.body.decode('utf-8'))  # type: ignore
+                        success_format['data'] = data
+                    except Exception:
+                        success_format['data'] = response.body.decode('utf-8')  # type: ignore
+                else:
+                    return response
+            else:
+                success_format['data'] = response
+
+            return JSONResponse(status_code=200, content=success_format)
+
+        return custom_route_handler
 
 
 class AppException(Exception):
@@ -23,13 +58,8 @@ class AppException(Exception):
 class NotFoundError(AppException):
     """Resource not found"""
 
-    def __init__(self, resource: str, resource_id: Any, message: Optional[str] = None):
-        super().__init__(
-            message=message or f'{resource} with ID {resource_id} not found',
-            status_code=404,
-            error_code='NOT_FOUND',
-            details={'resource': resource, 'resource_id': str(resource_id)},
-        )
+    def __init__(self, message: str = ''):
+        super().__init__(message=message, status_code=407, error_code='NOTFOUND')
 
 
 class ValidationError(AppException):
@@ -91,8 +121,8 @@ def create_error_response(
     status_code: int,
     error_code: str,
     message: str,
-    details: Dict[str, Any] = None,
-    request_id: str = None,
+    details: Union[Dict[str, Any], None] = None,
+    request_id: Union[str, None] = None,
 ) -> Dict[str, Any]:
     """Create a consistent error response structure"""
     response = {
