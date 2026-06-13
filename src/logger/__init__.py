@@ -1,3 +1,3 @@
-from .logger import heartbeat_logger, logger
+from .logger import color, heartbeat_logger, logger
 
-__all__ = ['logger', 'heartbeat_logger']
+__all__ = ['logger', 'heartbeat_logger', 'color']

@@ -1,13 +1,23 @@
 import asyncio
-from typing import Literal
+import json
+from typing import Callable, Literal, TypeVar
 
-from aio_pika.abc import AbstractExchange, ExchangeParamType
+from aio_pika.abc import (
+    AbstractExchange,
+    AbstractIncomingMessage,
+    AbstractQueue,
+    ConsumerTag,
+    ExchangeParamType,
+)
 
-from src.logger import logger
+from src.logger import color, logger
 
+from .cmd_id import blacklist
 from .connect_impl import Connect_impl
 from .queues import CONTROL_EX, HEARTBEAT_EX, IO_EX, RES_EX
 from .type import RABBIT_CREATE_EX_OPTION, RABBIT_CREATE_QUEUE_OPTIONS
+
+T = TypeVar('T')
 
 
 class Rabbit_client_async(Connect_impl):
@@ -74,7 +84,9 @@ class Rabbit_client_async(Connect_impl):
         except RuntimeError as e:
             logger.error(e)
 
-    async def create_queue(self, queue_name: str, options: RABBIT_CREATE_QUEUE_OPTIONS = {}):
+    async def create_queue(
+        self, queue_name: str, amrId: str, options: RABBIT_CREATE_QUEUE_OPTIONS = {}
+    ):
         try:
             if self.channel is None:
                 raise IOError('channel is None')
@@ -95,8 +107,8 @@ class Rabbit_client_async(Connect_impl):
                 arguments=queue_arguments,
             )
 
-            # log.info(
-            #     f'Queue "{queue_name}" is ready. Options: '
+            # logger.bind(type=amrId).info(
+            #     f'Queue "{queue_name}" is created. Options: '
             #     f'durable={durable}, exclusive={exclusive}, '
             #     f'autoDelete={auto_delete}, arguments={queue_arguments}'
             # )
@@ -108,14 +120,19 @@ class Rabbit_client_async(Connect_impl):
 
     async def create_queue_and_bind(
         self,
+        amrId: str,
         queue_name: str,
         exchange: ExchangeParamType,
         routing_key: str,
         q_options: RABBIT_CREATE_QUEUE_OPTIONS = {},
     ):
-        queue = await self.create_queue(queue_name=queue_name, options=q_options)
+        queue = await self.create_queue(amrId=amrId, queue_name=queue_name, options=q_options)
         assert queue is not None
         await queue.bind(exchange=exchange, routing_key=routing_key)
+        # logger.bind(type=amrId).info(
+        #     f'binding queue "{queue_name}" in exchange "{exchange}" with key "{routing_key}"'
+        # )
+        return queue
 
     def rabbitmq_connect_handler(self, is_connect: bool):
         if is_connect:
@@ -124,8 +141,39 @@ class Rabbit_client_async(Connect_impl):
             logger.info('delete RabbitMQ [EX] resource')
             self._exchanges.clear()
 
-    def consume_queue(self):
-        pass
+    async def consume_queue(
+        self,
+        queue: AbstractQueue,
+        *,
+        cb: Callable[[T], None],
+    ) -> ConsumerTag:
+
+        async def _wrapped(msg: AbstractIncomingMessage):
+            try:
+                async with msg.process():
+                    data = json.loads(msg.body)
+                    payload = data['payload']
+                    cmd_id = payload['cmd_id']
+                    amrId = payload['amrId']
+                    if data['flag'] == 'RES':
+                        if cmd_id not in blacklist:
+                            logger.bind(type=amrId).log(
+                                'MQ',
+                                f'Receive [res] message ({color(cmd_id, (217, 160, 102))}) - {json.dumps(payload)}',
+                            )
+                    else:
+                        if cmd_id not in blacklist:
+                            logger.bind(type='amrId').log(
+                                'MQ',
+                                f'{color("Receive [req] message", (220, 20, 60))} ({color(cmd_id, (217, 160, 102))}) - {json.dumps(payload)}',
+                            )
+                    cb(data)
+            except Exception:
+                pass
+            raise
+
+        tag = await queue.consume(_wrapped)
+        return tag
 
     def stop_consume_queue(self):
         pass

@@ -3,25 +3,54 @@ import json
 
 import httpx
 import websockets
+from aio_pika.abc import AbstractQueue, ConsumerTag
+from pydantic import BaseModel, ValidationError
+from reactivex import Subject
 
+from src.configs import config
 from src.logger import logger
-from src.service.rabbitmq import Rabbit_client_async
+from src.service.rabbitmq import (
+    ALL_CONTROL_TYPE,
+    HEARTBEAT,
+    Rabbit_client_async,
+    get_all_queue_exchange_relationship,
+)
 from src.service.webService import headers
 
 from .type import RobotStatus, TFMessage
 
 
 class AMR:
-    def __init__(self, mac_address: str, ip: str, amrId: str, rabbit_service: Rabbit_client_async):
+    def __init__(
+        self,
+        mac_address: str,
+        ip: str,
+        is_enable: bool,
+        amrId: str,
+        rabbit_service: Rabbit_client_async,
+    ):
+        self.is_enable = is_enable  ## check is enable in qams
+        self.online: bool = False  ## check is connect with qams
+
         self.rabbit_service = rabbit_service
         self.mac_address: str = mac_address
         self.ip: str = ip
         self.amrId: str = amrId
 
+        self.session: str = ''  ## connect session with qams
+        self.mir_token: str = ''  ## mir token for websocket create
+
         self.got_mir_token = False
-        self.mir_token: str = ''
+
+        ## own queues
+        self.queues: dict[str, AbstractQueue] = {}
+        self.consuming_queue: dict[str, ConsumerTag] = {}
 
         rabbit_service.rabbit_is_connect.subscribe(self.rabbitmq_connect_handler)
+
+        ## subjecter of action
+        self.heartbeat_output_: Subject[HEARTBEAT] = Subject()
+        self.control_transaction_output_: Subject[ALL_CONTROL_TYPE] = Subject()
 
     async def get_MiR_info(self):
         url = f'http://{self.ip}/api/v2.0.0/users/auth'
@@ -35,11 +64,40 @@ class AMR:
                     return True
             except httpx.HTTPError:
                 logger.bind(type=self.amrId).error(
-                    'connect failed: did not get mir token，retry after 3s ...',
+                    f'connect failed: did not get mir token from {url} ，retry after 3s ...',
                 )
             except Exception:
                 pass
             await asyncio.sleep(3)
+
+    async def connect_with_qams(self):
+        url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/amr/mir-establish-connection'
+
+        class Schema(BaseModel):
+            applicant: str
+            amrId: str
+            session: str
+            success: bool
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url=url, json={'serialNumber': self.mac_address}, timeout=2
+                )
+                data = Schema(**response.json())
+                if data.success:
+                    self.session = data.session
+                    self.online = True
+                    return
+
+        except httpx.HTTPError as e:
+            logger.bind(type=self.amrId).error(f'request error: {e}')
+        except ValidationError as e:
+            logger.bind(type=self.amrId).error(f'validate error: {e}')
+
+        logger.bind(type=self.amrId).warning('failed to connect with qams, retry afater 3s...')
+        await asyncio.sleep(3)
+        asyncio.create_task(self.connect_with_qams())
 
     async def ros_bridge_connect(self):
         """
@@ -104,10 +162,32 @@ class AMR:
 
             else:
                 pass
-                # print(f'【{self.amrId} 收到其他 ROS 訊息】: {payload}')
 
         except json.JSONDecodeError:
-            print(f'無法解析的非 JSON 原始訊息: {raw_message}')
+            print(f'parse error: {raw_message}')
 
     def rabbitmq_connect_handler(self, is_connect: bool):
-        print(is_connect)
+        if is_connect:
+            asyncio.create_task(self.init_queues_and_bind_with_exchange())
+            if not self.online:
+                asyncio.create_task(self.connect_with_qams())
+        else:
+            self.online = False
+            self.queues.clear()
+
+    async def init_queues_and_bind_with_exchange(self):
+        if not len(self.queues):
+            queue_pairs = get_all_queue_exchange_relationship(self.mac_address)
+            for pair in queue_pairs:
+                queue = await self.rabbit_service.create_queue_and_bind(
+                    amrId=self.amrId,
+                    queue_name=pair['q_name'],
+                    exchange=pair['bind_ex'],
+                    routing_key=pair['key'],
+                    q_options={'durable': True},
+                )
+                if queue is not None:
+                    self.queues[pair['q_name']] = queue
+
+    async def consumeTopic(self):
+        pass

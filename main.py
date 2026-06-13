@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sys
 import time
 from contextlib import asynccontextmanager
 
@@ -34,7 +35,7 @@ class MiR_BRIDGE:
         if not success:
             self.rabbitmq._trigger_reconnect()
         await self.web_server.run()
-        logger.info('All service is running')
+        logger.info('all service is working')
         try:
             yield
         finally:
@@ -52,6 +53,7 @@ class MiR_BRIDGE:
                 mac_address=serialNum,
                 ip=amr_info['ip'],
                 amrId=amr_info['amrId'],
+                is_enable=amr_info['is_enable'],
                 rabbit_service=self.rabbitmq,
             )
             amr_info['amr'] = amr
@@ -72,16 +74,17 @@ class MiR_BRIDGE:
                 full_name: str
                 ip: str
                 serialNum: str
+                is_enable: bool
 
             ## valid formate
             for amr in data:
                 amr_info = AMR_INFO_SCHEMA(**amr)
                 amr_info.model_dump()
-
                 self.register_table[amr['serialNum']] = {
                     'amrId': amr['full_name'],
                     'ip': amr['ip'],
                     'serialNum': amr['serialNum'],
+                    'is_enable': amr['is_enable'],
                     'amr': None,
                 }
 
@@ -114,12 +117,17 @@ if __name__ == '__main__':
     )
     logger.opt(raw=True).info(cow_text + '\n')
     mir_bridge = MiR_BRIDGE()
-
-    while not sync_register_table_success:
-        success = mir_bridge.sync_register_table()
-        if success:
-            sync_register_table_success = True
-        else:
-            time.sleep(3)
+    try:
+        while not sync_register_table_success:
+            success = mir_bridge.sync_register_table()
+            if success:
+                sync_register_table_success = True
+            else:
+                time.sleep(3)
+    except KeyboardInterrupt as e:
+        logger.info('ctrl + c to close service')
+        sys.exit(1)
+    except Exception as e:
+        pass
 
     uvicorn.run(mir_bridge.web_server._app, host='0.0.0.0', port=4008, log_config=None)
