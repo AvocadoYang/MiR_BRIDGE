@@ -1,10 +1,8 @@
 import asyncio
-import json
 from typing import Tuple
 
 import httpx
-import websockets
-from aio_pika.abc import AbstractQueue, ConsumerTag
+from aio_pika.abc import AbstractQueue
 from pydantic import BaseModel, ValidationError
 from reactivex import Subject, combine_latest
 from reactivex.operators import distinct_until_changed, do_action
@@ -25,7 +23,8 @@ from src.service.rabbitmq import (
 from src.service.webService import headers
 
 from .heartbeat import Heartbeat
-from .type import CONNECT_STATUS, RobotStatus, TFMessage
+from .status import Status
+from .type import CONNECT_STATUS
 
 
 class AMR:
@@ -48,30 +47,21 @@ class AMR:
         self.session: str = ''  ## connect session with qams
         self.mir_token: str = ''  ## mir token for websocket create
 
-        self.got_mir_token = False
+        self.show_get_mir_token_error_log = True  ## log switch of mir token getting function
+        self.got_mir_token = False  ## loop controler of mir token gettin function
 
         ## own queues
         self.queues: dict[str, AbstractQueue] = {}
-        self.consuming_queue: dict[str, ConsumerTag] = {}
+        # self.consuming_queue: dict[str, ConsumerTag] = {}
 
         self.receive_request_record: dict[str, str] = {}  ## record the last receive request
 
         ## subjecter of action
-        self.heartbeat_output_: Subject[HEARTBEAT] = Subject()
-        self.control_transaction_output_: Subject[ALL_CONTROL_TYPE] = Subject()
-
-        ## all of components
-        heartbeat_c = Heartbeat(
-            amrId=self.amrId,
-            mac_address=self.mac_address,
-            receive_request_record=self.receive_request_record,
-            rabbit_service=self.rabbit_service,
-            heartbeat_sub=self.heartbeat_output_,
-        )
+        self.heartbeat_input_: Subject[HEARTBEAT] = Subject()
+        self.control_transaction_input_: Subject[ALL_CONTROL_TYPE] = Subject()
 
         # Connection status tracker.
         # Will connect to QAMS only when both MiR service and RabbitMQ are connected.
-
         self.connect_status: CONNECT_STATUS = {
             'qams_is_connect': False,
             'rabbitmq_is_connect': False,
@@ -95,9 +85,27 @@ class AMR:
             do_action(lambda connect_list: self._check_and_log_status(connect_list)),
         ).subscribe(on_next=lambda connect_list: self.connect_behavior(connect_list))
 
-        # rabbit_service.rabbit_is_connect.subscribe(self.rabbitmq_connect_handler)
+        # listen rabbitmq server connect status
         rabbit_service.rabbit_is_connect.subscribe(
             on_next=lambda is_connect: self.rb_connect_status.on_next(is_connect)
+        )
+
+        ## all of components
+        self.heartbeat_c = Heartbeat(
+            amrId=self.amrId,
+            mac_address=self.mac_address,
+            receive_request_record=self.receive_request_record,
+            rabbit_service=self.rabbit_service,
+            heartbeat_sub=self.heartbeat_input_,
+        )
+        self.status_c = Status(
+            amrId=amrId,
+            ip=ip,
+            mac_address=self.mac_address,
+            receive_request_record=self.receive_request_record,
+            mir_service_connect_status=self.mir_service_connect_status,
+            rabbit_service=self.rabbit_service,
+            control_transaction_sub_=self.control_transaction_input_,
         )
 
     async def get_MiR_info(self):
@@ -108,14 +116,15 @@ class AMR:
                     response = await client.post(url=url, headers=headers, timeout=2)
                     self.mir_token = response.json()['token']
                     self.got_mir_token = True
-                    await self.ros_bridge_connect()
+                    self.show_get_mir_token_error_log = True
+                    await self.status_c.ros_bridge_connect(self.mir_token)
                     return True
-            except httpx.HTTPError:
-                logger.bind(title=self.amrId).error(
-                    f'connect failed: did not get mir token from {url} ，retry after 3s ...',
-                )
-            except Exception:
-                pass
+            except (httpx.HTTPError, Exception):
+                if self.show_get_mir_token_error_log:
+                    logger.bind(title=self.amrId).error(
+                        f'connect failed: did not get mir token from {url} ，retry after 3s ...',
+                    )
+                    self.show_get_mir_token_error_log = False
             await asyncio.sleep(3)
 
     async def connect_with_qams(self):
@@ -136,6 +145,7 @@ class AMR:
                 if data.success:
                     self.session = data.session
                     self.online = True
+                    self.qams_connect_status.on_next(True)
                     return
 
         except httpx.HTTPError as e:
@@ -144,84 +154,9 @@ class AMR:
             logger.bind(title=self.amrId).error(f'validate error: {e}')
 
         logger.bind(title=self.amrId).warning('failed to connect with qams, retry afater 3s...')
+        self.qams_connect_status.on_next(False)
         await asyncio.sleep(3)
         asyncio.create_task(self.connect_with_qams())
-
-    async def ros_bridge_connect(self):
-        """
-        create websocket connect with ROS Bridge
-        """
-        if not self.got_mir_token or not self.mir_token:
-            return False
-
-        url = f'ws://{self.ip}/rosbridge/'
-        cookie_header = {'Cookie': f'mir-auth-token={self.mir_token}'}
-
-        while True:
-            try:
-                async with websockets.connect(
-                    url, additional_headers=cookie_header, ping_interval=1.5, ping_timeout=1.5
-                ) as websocket:
-                    self.ws = websocket
-
-                    topics_to_subscribe = ['/tf', '/robot_status']
-
-                    for topic in topics_to_subscribe:
-                        sub_msg = {'op': 'subscribe', 'topic': topic}
-                        await websocket.send(json.dumps(sub_msg))
-
-                    logger.bind(title=self.amrId).info(
-                        'ROS Bridge connect successfully, QAMS bridge was connect with amr.'
-                    )
-
-                    async for message in websocket:
-                        if isinstance(message, bytes):
-                            message_str = message.decode('utf-8')
-                        else:
-                            message_str = message
-
-                        await self._handle_ros_message(message_str)
-
-            except websockets.ConnectionClosed as e:
-                logger.bind(title=self.amrId).warning(
-                    f'ROS Bridge disconnection ({e}), retry connect after 3s ...'
-                )
-            except Exception as e:
-                logger.bind(title=self.amrId).error(
-                    f'ROS Bridge connects failed: {e}, retry connect after 3s ...'
-                )
-
-            self.ws = None
-            await asyncio.sleep(3)
-
-    async def _handle_ros_message(self, raw_message: str):
-        """
-        parse ROS Bridge message to JSON formate
-        """
-        try:
-            payload = json.loads(raw_message)
-            topic = payload.get('topic')
-
-            if topic == '/tf':
-                pose_msg_data: TFMessage = payload.get('msg')
-
-            if topic == '/robot_status':
-                status_msg_data: RobotStatus = payload.get('msg')
-
-            else:
-                pass
-
-        except json.JSONDecodeError:
-            print(f'parse error: {raw_message}')
-
-    # def rabbitmq_connect_handler(self, is_connect: bool):
-    #     if is_connect:
-    #         asyncio.create_task(self.init_queues_and_bind_with_exchange())
-    #         if not self.online:
-    #             asyncio.create_task(self.connect_with_qams())
-    #     else:
-    #         self.online = False
-    #         self.queues.clear()
 
     async def init_queues_and_bind_with_exchange(self):
         if not len(self.queues):
@@ -251,10 +186,11 @@ class AMR:
 
     def __heartbeat_consumer(self, msg: HEARTBEAT):
         self.receive_request_record[msg['payload']['cmd_id']] = msg['session']
-        self.heartbeat_output_.on_next(msg)
+        self.heartbeat_input_.on_next(msg)
 
     def __control_consumer(self, msg: ALL_CONTROL_TYPE):
         self.receive_request_record[msg['payload']['cmd_id']] = msg['session']
+        self.control_transaction_input_.on_next(msg)
 
     def _check_and_log_status(self, states: Tuple[bool, bool, bool]):
         """
@@ -267,14 +203,18 @@ class AMR:
         qams_r = 'qams: connect ✅' if qams_c else 'qams: disconnect ❌'
         rabbit_r = 'rabbitmq: connect ✅' if rabbit_c else 'rabbitmq: disconnect ❌'
         mir_service_r = 'mir_service: connect ✅' if amr_service_c else 'mir_service: disconnect ❌'
-        logger.info(f'service status:  {qams_r} / {rabbit_r} / {mir_service_r}')
+        logger.bind(title=self.amrId).info(
+            f'service status:  {qams_r} / {rabbit_r} / {mir_service_r}'
+        )
 
+    ## (qams, rabbitmq, mir_service)
     def connect_behavior(self, connect_list: Tuple[bool, bool, bool]):
-        print(connect_list, '@@@@@@@@@@@')
-        # if False not in connect_list:
-        #     self.rb.consume_topic()
-        # if (not connect_list[0]) and (False not in connect_list[1:]):
-        #     self.network.send(network.try_to_connect_qams())
-        # if False in connect_list:
-        #     self.rb.stop_consume_queue(dynamicListener)
-        #     self.hb.send(heartbeat.Qams_heartbeat_watch_dog(open=False))
+        qams_connect, rabbitmq_connect, mir_serive_connect = connect_list
+        if not rabbitmq_connect:
+            self.queues.clear()
+        if rabbitmq_connect and (len(self.queues) == 0):
+            asyncio.create_task(self.init_queues_and_bind_with_exchange())
+        if not qams_connect and rabbitmq_connect:
+            asyncio.create_task(self.connect_with_qams())
+        else:
+            self.online = False

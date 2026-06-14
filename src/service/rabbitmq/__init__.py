@@ -1,5 +1,5 @@
 from .action import ALL_CONTROL_TYPE, HEARTBEAT
-from .cmd_id import blacklist
+from .cmd_id import CMD_ID, blacklist
 from .queues import (
     dynamicListener_queues,
     get_all_queue_exchange_relationship,
@@ -19,4 +19,5 @@ __all__ = [
     'q2a_controlQName',
     'q2a_amrResponseQName',
     'ALL_CONTROL_TYPE',
+    'CMD_ID',
 ]

@@ -163,13 +163,13 @@ class Rabbit_client_async(Connect_impl):
                         if cmd_id not in blacklist:
                             logger.bind(title=amrId).log(
                                 'MQ',
-                                f'Receive [res] message ({color(cmd_id, (217, 160, 102))}) - {json.dumps(payload)}',
+                                f'Receive [res] message ({cmd_id}) - {json.dumps(payload)}',
                             )
                     else:
                         if cmd_id not in blacklist:
                             logger.bind(title=amrId).log(
                                 'MQ',
-                                f'{color("Receive [req] message", (220, 20, 60))} ({color(cmd_id, (217, 160, 102))}) - {json.dumps(payload)}',
+                                f'Receive [req] message ({cmd_id}) - {json.dumps(payload)}',
                             )
                     cb(data)
             except Exception:
@@ -222,7 +222,9 @@ class Rabbit_client_async(Connect_impl):
                     f'Response heartbeat to QAMS {message}'
                 )
                 return True
-            # elif message['cmd_id'] not in blacklist:
-            #     logger.
+            elif message['cmd_id'] not in blacklist:
+                logger.bind(title=message['amrId']).log(
+                    'MQ', f'Send [res] message ({message["cmd_id"]}) - {json.dumps(message)}'
+                )
         except aiormq.exceptions.PublishError as e:
             print(f'訊息發送失敗: {e}')
