@@ -1,11 +1,14 @@
 import asyncio
 import json
+from typing import Tuple
 
 import httpx
 import websockets
 from aio_pika.abc import AbstractQueue, ConsumerTag
 from pydantic import BaseModel, ValidationError
-from reactivex import Subject
+from reactivex import Subject, combine_latest
+from reactivex.operators import distinct_until_changed, do_action
+from reactivex.subject import BehaviorSubject
 
 from src.configs import config
 from src.logger import logger
@@ -22,7 +25,7 @@ from src.service.rabbitmq import (
 from src.service.webService import headers
 
 from .heartbeat import Heartbeat
-from .type import RobotStatus, TFMessage
+from .type import CONNECT_STATUS, RobotStatus, TFMessage
 
 
 class AMR:
@@ -53,8 +56,6 @@ class AMR:
 
         self.receive_request_record: dict[str, str] = {}  ## record the last receive request
 
-        rabbit_service.rabbit_is_connect.subscribe(self.rabbitmq_connect_handler)
-
         ## subjecter of action
         self.heartbeat_output_: Subject[HEARTBEAT] = Subject()
         self.control_transaction_output_: Subject[ALL_CONTROL_TYPE] = Subject()
@@ -66,6 +67,37 @@ class AMR:
             receive_request_record=self.receive_request_record,
             rabbit_service=self.rabbit_service,
             heartbeat_sub=self.heartbeat_output_,
+        )
+
+        # Connection status tracker.
+        # Will connect to QAMS only when both MiR service and RabbitMQ are connected.
+
+        self.connect_status: CONNECT_STATUS = {
+            'qams_is_connect': False,
+            'rabbitmq_is_connect': False,
+            'mir_service_is_connect': False,
+        }
+        self.qams_connect_status: BehaviorSubject[bool] = BehaviorSubject(False)
+        self.rb_connect_status: BehaviorSubject[bool] = BehaviorSubject(False)
+        self.mir_service_connect_status: BehaviorSubject[bool] = BehaviorSubject(False)
+
+        combine_latest(
+            self.qams_connect_status, self.rb_connect_status, self.mir_service_connect_status
+        ).pipe(
+            distinct_until_changed(
+                lambda connect_list: connect_list,
+                lambda pre_list, curr_list: (
+                    (pre_list[0] == curr_list[0])
+                    and (pre_list[1] == curr_list[1])
+                    and (pre_list[2] == curr_list[2])
+                ),
+            ),
+            do_action(lambda connect_list: self._check_and_log_status(connect_list)),
+        ).subscribe(on_next=lambda connect_list: self.connect_behavior(connect_list))
+
+        # rabbit_service.rabbit_is_connect.subscribe(self.rabbitmq_connect_handler)
+        rabbit_service.rabbit_is_connect.subscribe(
+            on_next=lambda is_connect: self.rb_connect_status.on_next(is_connect)
         )
 
     async def get_MiR_info(self):
@@ -182,14 +214,14 @@ class AMR:
         except json.JSONDecodeError:
             print(f'parse error: {raw_message}')
 
-    def rabbitmq_connect_handler(self, is_connect: bool):
-        if is_connect:
-            asyncio.create_task(self.init_queues_and_bind_with_exchange())
-            if not self.online:
-                asyncio.create_task(self.connect_with_qams())
-        else:
-            self.online = False
-            self.queues.clear()
+    # def rabbitmq_connect_handler(self, is_connect: bool):
+    #     if is_connect:
+    #         asyncio.create_task(self.init_queues_and_bind_with_exchange())
+    #         if not self.online:
+    #             asyncio.create_task(self.connect_with_qams())
+    #     else:
+    #         self.online = False
+    #         self.queues.clear()
 
     async def init_queues_and_bind_with_exchange(self):
         if not len(self.queues):
@@ -223,3 +255,26 @@ class AMR:
 
     def __control_consumer(self, msg: ALL_CONTROL_TYPE):
         self.receive_request_record[msg['payload']['cmd_id']] = msg['session']
+
+    def _check_and_log_status(self, states: Tuple[bool, bool, bool]):
+        """
+        connect status logger
+        """
+        qams_c, rabbit_c, amr_service_c = states
+        self.connect_status['qams_is_connect'] = qams_c
+        self.connect_status['rabbitmq_is_connect'] = rabbit_c
+        self.connect_status['mir_service_is_connect'] = amr_service_c
+        qams_r = 'qams: connect ✅' if qams_c else 'qams: disconnect ❌'
+        rabbit_r = 'rabbitmq: connect ✅' if rabbit_c else 'rabbitmq: disconnect ❌'
+        mir_service_r = 'mir_service: connect ✅' if amr_service_c else 'mir_service: disconnect ❌'
+        logger.info(f'service status:  {qams_r} / {rabbit_r} / {mir_service_r}')
+
+    def connect_behavior(self, connect_list: Tuple[bool, bool, bool]):
+        print(connect_list, '@@@@@@@@@@@')
+        # if False not in connect_list:
+        #     self.rb.consume_topic()
+        # if (not connect_list[0]) and (False not in connect_list[1:]):
+        #     self.network.send(network.try_to_connect_qams())
+        # if False in connect_list:
+        #     self.rb.stop_consume_queue(dynamicListener)
+        #     self.hb.send(heartbeat.Qams_heartbeat_watch_dog(open=False))

@@ -131,3 +131,9 @@ class RobotStatus(TypedDict):
     joystick_low_speed_mode_enabled: bool
     joystick_web_session_id: str
     mode_key_state: str
+
+
+class CONNECT_STATUS(TypedDict):
+    qams_is_connect: bool
+    mir_service_is_connect: bool
+    rabbitmq_is_connect: bool
