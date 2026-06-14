@@ -17,30 +17,31 @@ def color(text: str, rgb: Tuple[int, int, int]):
 path_with_tilde = '~/kenmec/_logs/kenmec_bridge'
 absolute_path = os.path.abspath(os.path.expanduser(path_with_tilde))
 log_file_path = os.path.join(absolute_path, '{time:YYYY-MM-DD}.log')
-heartbeat_file_path = os.path.join(absolute_path, 'heartbeat_{time:YYYY-MM-DD}.log')
+heartbeat_file_path = os.path.join(absolute_path, 'heartbeat/heartbeat_{time:YYYY-MM-DD}.log')
 
 logger.remove()
 
-logger = logger.bind(type='')
+logger = logger.bind(title='')
+logger = logger.bind(state='')
 logger.level('INFO', color='<fg 151>')
 logger.level('MQ', no=15, color='<fg 146>')
 
 logger.add(
     sys.stdout,
-    filter=lambda record: record['extra'].get('type') != 'heartbeat',
-    format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> <blue>{extra[type]}</blue> | <level>{level:7}</level> | {message}',
+    filter=lambda record: record['extra'].get('state') != 'heartbeat',
+    format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> <blue>{extra[title]}</blue> | <level>{level:7}</level> | {message}',
 )
 
 
 logger.add(
     log_file_path,
-    filter=lambda record: record['extra'].get('type') != 'heartbeat',
+    filter=lambda record: record['extra'].get('state') != 'heartbeat',
     rotation='00:00',
     retention='15 days',
     compression='zip',
     encoding='utf-8',
     enqueue=True,
-    format='{time:YYYY-MM-DD HH:mm:ss} {extra[type]} | {level} | {message}',
+    format='{time:YYYY-MM-DD HH:mm:ss} {extra[title]} | {level} | {message}',
 )
 
 
@@ -52,6 +53,13 @@ logger.add(
     compression='zip',
     encoding='utf-8',
     enqueue=True,
+    format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> <blue>{extra[title]}</blue> | <magenta>[Heartbeat]</magenta> | {message}',
+)
+
+logger.add(
+    sys.stdout,
+    filter=heartbeat_filter,
+    format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> <blue>{extra[title]}</blue> | <magenta>[Heartbeat]</magenta> | {message}',
 )
 
 heartbeat_logger = logger.bind(type='heartbeat')

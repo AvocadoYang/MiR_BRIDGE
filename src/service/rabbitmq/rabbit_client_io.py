@@ -2,6 +2,8 @@ import asyncio
 import json
 from typing import Callable, Literal, TypeVar
 
+import aiormq
+from aio_pika import DeliveryMode, Message
 from aio_pika.abc import (
     AbstractExchange,
     AbstractIncomingMessage,
@@ -10,12 +12,14 @@ from aio_pika.abc import (
     ExchangeParamType,
 )
 
-from src.logger import color, logger
+from src.helper.helper import format_date
+from src.logger import color, heartbeat_logger, logger
 
 from .cmd_id import blacklist
 from .connect_impl import Connect_impl
 from .queues import CONTROL_EX, HEARTBEAT_EX, IO_EX, RES_EX
-from .type import RABBIT_CREATE_EX_OPTION, RABBIT_CREATE_QUEUE_OPTIONS
+from .transaction_wrapper import ALL_RESPONSE_MSG_FORMATE
+from .type import PUBLISH_OPTIONS, RABBIT_CREATE_EX_OPTION, RABBIT_CREATE_QUEUE_OPTIONS
 
 T = TypeVar('T')
 
@@ -107,7 +111,7 @@ class Rabbit_client_async(Connect_impl):
                 arguments=queue_arguments,
             )
 
-            # logger.bind(type=amrId).info(
+            # logger.bind(title=amrId).info(
             #     f'Queue "{queue_name}" is created. Options: '
             #     f'durable={durable}, exclusive={exclusive}, '
             #     f'autoDelete={auto_delete}, arguments={queue_arguments}'
@@ -129,7 +133,7 @@ class Rabbit_client_async(Connect_impl):
         queue = await self.create_queue(amrId=amrId, queue_name=queue_name, options=q_options)
         assert queue is not None
         await queue.bind(exchange=exchange, routing_key=routing_key)
-        # logger.bind(type=amrId).info(
+        # logger.bind(title=amrId).info(
         #     f'binding queue "{queue_name}" in exchange "{exchange}" with key "{routing_key}"'
         # )
         return queue
@@ -157,23 +161,68 @@ class Rabbit_client_async(Connect_impl):
                     amrId = payload['amrId']
                     if data['flag'] == 'RES':
                         if cmd_id not in blacklist:
-                            logger.bind(type=amrId).log(
+                            logger.bind(title=amrId).log(
                                 'MQ',
                                 f'Receive [res] message ({color(cmd_id, (217, 160, 102))}) - {json.dumps(payload)}',
                             )
                     else:
                         if cmd_id not in blacklist:
-                            logger.bind(type='amrId').log(
+                            logger.bind(title=amrId).log(
                                 'MQ',
                                 f'{color("Receive [req] message", (220, 20, 60))} ({color(cmd_id, (217, 160, 102))}) - {json.dumps(payload)}',
                             )
                     cb(data)
             except Exception:
                 pass
-            raise
 
         tag = await queue.consume(_wrapped)
         return tag
 
     def stop_consume_queue(self):
         pass
+
+    async def res_publish(
+        self,
+        exchange_name: str,
+        routing_key: str,
+        last_receive_req: dict[str, str],
+        mac_address: str,
+        message: ALL_RESPONSE_MSG_FORMATE,
+        options: PUBLISH_OPTIONS = PUBLISH_OPTIONS(),
+    ):
+        try:
+            flag = 'RES'
+            if message['cmd_id'] not in last_receive_req:
+                raise Exception("can't get the corresponding request")
+            req_session = last_receive_req[message['cmd_id']]
+            r_msg = {
+                'id': message['id'],
+                'seder': 'MiR_Bridge',
+                'serialNum': mac_address,
+                'session': req_session,
+                'flag': flag,
+                'timestamp': format_date(),
+                'payload': message,
+            }
+            b_msg = json.dumps(r_msg, ensure_ascii=False).encode('utf-8')
+            msg = Message(
+                body=b_msg,
+                content_type='application/json',
+                expiration=options.expiration,
+                delivery_mode=(
+                    DeliveryMode.PERSISTENT if options.persistent else DeliveryMode.NOT_PERSISTENT
+                ),
+            )
+            if exchange_name not in self._exchanges:
+                raise IOError(f'exchange {exchange_name} is None')
+            exchange = self._exchanges[exchange_name]
+            await exchange.publish(message=msg, routing_key=routing_key)
+            if message['cmd_id'] == 'HB':
+                heartbeat_logger.bind(title=message['amrId'], state='heartbeat').info(
+                    f'Response heartbeat to QAMS {message}'
+                )
+                return True
+            # elif message['cmd_id'] not in blacklist:
+            #     logger.
+        except aiormq.exceptions.PublishError as e:
+            print(f'訊息發送失敗: {e}')

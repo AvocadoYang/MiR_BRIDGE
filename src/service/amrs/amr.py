@@ -13,10 +13,15 @@ from src.service.rabbitmq import (
     ALL_CONTROL_TYPE,
     HEARTBEAT,
     Rabbit_client_async,
+    dynamicListener_queues,
     get_all_queue_exchange_relationship,
+    heartbeatPingQName,
+    q2a_amrResponseQName,
+    q2a_controlQName,
 )
 from src.service.webService import headers
 
+from .heartbeat import Heartbeat
 from .type import RobotStatus, TFMessage
 
 
@@ -46,11 +51,22 @@ class AMR:
         self.queues: dict[str, AbstractQueue] = {}
         self.consuming_queue: dict[str, ConsumerTag] = {}
 
+        self.receive_request_record: dict[str, str] = {}  ## record the last receive request
+
         rabbit_service.rabbit_is_connect.subscribe(self.rabbitmq_connect_handler)
 
         ## subjecter of action
         self.heartbeat_output_: Subject[HEARTBEAT] = Subject()
         self.control_transaction_output_: Subject[ALL_CONTROL_TYPE] = Subject()
+
+        ## all of components
+        heartbeat_c = Heartbeat(
+            amrId=self.amrId,
+            mac_address=self.mac_address,
+            receive_request_record=self.receive_request_record,
+            rabbit_service=self.rabbit_service,
+            heartbeat_sub=self.heartbeat_output_,
+        )
 
     async def get_MiR_info(self):
         url = f'http://{self.ip}/api/v2.0.0/users/auth'
@@ -63,7 +79,7 @@ class AMR:
                     await self.ros_bridge_connect()
                     return True
             except httpx.HTTPError:
-                logger.bind(type=self.amrId).error(
+                logger.bind(title=self.amrId).error(
                     f'connect failed: did not get mir token from {url} ，retry after 3s ...',
                 )
             except Exception:
@@ -91,11 +107,11 @@ class AMR:
                     return
 
         except httpx.HTTPError as e:
-            logger.bind(type=self.amrId).error(f'request error: {e}')
+            logger.bind(title=self.amrId).error(f'request error: {e}')
         except ValidationError as e:
-            logger.bind(type=self.amrId).error(f'validate error: {e}')
+            logger.bind(title=self.amrId).error(f'validate error: {e}')
 
-        logger.bind(type=self.amrId).warning('failed to connect with qams, retry afater 3s...')
+        logger.bind(title=self.amrId).warning('failed to connect with qams, retry afater 3s...')
         await asyncio.sleep(3)
         asyncio.create_task(self.connect_with_qams())
 
@@ -122,7 +138,7 @@ class AMR:
                         sub_msg = {'op': 'subscribe', 'topic': topic}
                         await websocket.send(json.dumps(sub_msg))
 
-                    logger.bind(type=self.amrId).info(
+                    logger.bind(title=self.amrId).info(
                         'ROS Bridge connect successfully, QAMS bridge was connect with amr.'
                     )
 
@@ -135,11 +151,11 @@ class AMR:
                         await self._handle_ros_message(message_str)
 
             except websockets.ConnectionClosed as e:
-                logger.bind(type=self.amrId).warning(
+                logger.bind(title=self.amrId).warning(
                     f'ROS Bridge disconnection ({e}), retry connect after 3s ...'
                 )
             except Exception as e:
-                logger.bind(type=self.amrId).error(
+                logger.bind(title=self.amrId).error(
                     f'ROS Bridge connects failed: {e}, retry connect after 3s ...'
                 )
 
@@ -188,6 +204,22 @@ class AMR:
                 )
                 if queue is not None:
                     self.queues[pair['q_name']] = queue
+            need_consume_queue = dynamicListener_queues(serialNum=self.mac_address)
+            for queue_name in need_consume_queue:
+                if queue_name == heartbeatPingQName(self.mac_address):
+                    await self.rabbit_service.consume_queue(
+                        self.queues[queue_name], cb=self.__heartbeat_consumer
+                    )
+                if queue_name == q2a_controlQName(self.mac_address):
+                    await self.rabbit_service.consume_queue(
+                        self.queues[queue_name], cb=self.__control_consumer
+                    )
+                if queue_name == q2a_amrResponseQName(self.mac_address):
+                    pass
 
-    async def consumeTopic(self):
-        pass
+    def __heartbeat_consumer(self, msg: HEARTBEAT):
+        self.receive_request_record[msg['payload']['cmd_id']] = msg['session']
+        self.heartbeat_output_.on_next(msg)
+
+    def __control_consumer(self, msg: ALL_CONTROL_TYPE):
+        self.receive_request_record[msg['payload']['cmd_id']] = msg['session']

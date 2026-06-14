@@ -44,7 +44,7 @@ class WebServer:
             if create_info.serialNum in self.register_table:
                 raise ConflictError(resource=create_info.serialNum)
             pretty_json = create_info.model_dump_json()
-            logger.bind(type='[POST]').info(f'create new amr: {pretty_json}')
+            logger.bind(state='[POST]').info(f'create new amr: {pretty_json}')
             return create_info
 
         @self._app.put('/update_mir_amr', response_model=AMR_INFO)
@@ -54,7 +54,7 @@ class WebServer:
                     f'can not found mac address {update_info.serialNum} in register table',
                 )
             pretty_json = update_info.model_dump_json()
-            logger.bind(type='[PUT]').info(f'update amr: {pretty_json}')
+            logger.bind(state='[PUT]').info(f'update amr: {pretty_json}')
             return update_info
 
         @self._app.delete('/delete_mir_amr', response_model=AMR_INFO)
@@ -65,7 +65,7 @@ class WebServer:
                 )
 
             pretty_json = update_info.model_dump_json()
-            logger.bind(type='[DELETE]').info(f'delete new amr: {pretty_json}')
+            logger.bind(state='[DELETE]').info(f'delete new amr: {pretty_json}')
             return update_info
 
     def set_error_handler(self):
@@ -74,7 +74,7 @@ class WebServer:
             """Handle all custom application exceptions"""
 
             # Log the error with context
-            logger.bind(type=f'[{request.method}]').warning(
+            logger.bind(state=f'[{request.method}]').warning(
                 f'Application error: {exc.error_code} - {exc.message}',
                 extra={
                     'error_code': exc.error_code,
