@@ -61,7 +61,7 @@ class AMR:
         self.control_transaction_input_: Subject[ALL_CONTROL_TYPE] = Subject()
 
         # Connection status tracker.
-        # Will connect to QAMS only when both MiR service and RabbitMQ are connected.
+        # will connect to QAMS only when both MiR service and RabbitMQ are connected.
         self.connect_status: CONNECT_STATUS = {
             'qams_is_connect': False,
             'rabbitmq_is_connect': False,
@@ -118,7 +118,6 @@ class AMR:
                     self.got_mir_token = True
                     self.show_get_mir_token_error_log = True
                     await self.status_c.ros_bridge_connect(self.mir_token)
-                    return True
             except (httpx.HTTPError, Exception):
                 if self.show_get_mir_token_error_log:
                     logger.bind(title=self.amrId).error(

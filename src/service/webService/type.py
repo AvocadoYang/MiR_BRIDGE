@@ -7,6 +7,17 @@ class AMR_INFO(BaseModel):
     ip: str
 
 
+class Maps(BaseModel):
+    guid: str
+    session_id: str
+    name: str
+    base_map: str
+    resolution: float
+    origin_x: float
+    origin_y: float
+    origin_theta: float
+
+
 class REGISTER_TABLE_RESPONSE(BaseModel):
     register_table: dict[str, AMR_INFO]
 

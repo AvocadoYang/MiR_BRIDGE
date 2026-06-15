@@ -29,7 +29,7 @@ logger.level('MQ', no=15, color='<fg 146>')
 logger.add(
     sys.stdout,
     filter=lambda record: record['extra'].get('state') != 'heartbeat',
-    format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> <blue>{extra[title]}</blue> | <level>{level:7}</level> | {message}',
+    format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> <blue>{extra[title]}</blue> <magenta>{extra[state]}</magenta> | <level>{level:7}</level> | {message}',
 )
 
 
@@ -56,10 +56,10 @@ logger.add(
     format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> <blue>{extra[title]}</blue> | <magenta>[Heartbeat]</magenta> | {message}',
 )
 
-logger.add(
-    sys.stdout,
-    filter=heartbeat_filter,
-    format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> <blue>{extra[title]}</blue> | <magenta>[Heartbeat]</magenta> | {message}',
-)
+# logger.add(
+#     sys.stdout,
+#     filter=heartbeat_filter,
+#     format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> <blue>{extra[title]}</blue> | <magenta>[Heartbeat]</magenta> | {message}',
+# )
 
 heartbeat_logger = logger.bind(type='heartbeat')

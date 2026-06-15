@@ -65,12 +65,12 @@ class NotFoundError(AppException):
 class ValidationError(AppException):
     """Input validation failed"""
 
-    def __init__(self, field: str, message: str, value: Any = None):
+    def __init__(self, message: str, value: Any = None):
         super().__init__(
-            message=f"Validation error on field '{field}': {message}",
+            message=f'Validation error: {message}',
             status_code=422,
             error_code='VALIDATION_ERROR',
-            details={'field': field, 'value': str(value) if value else None},
+            details={'value': str(value) if value else None},
         )
 
 

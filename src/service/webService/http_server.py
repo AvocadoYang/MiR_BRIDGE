@@ -1,5 +1,10 @@
+from typing import List
+
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
 
 from src.logger import logger
 
@@ -7,10 +12,13 @@ from .handler import (
     AppException,
     ConflictError,
     CustomSuccessRoute,
+    ExternalServiceError,
     NotFoundError,
+    ValidationError,
     create_error_response,
 )
-from .type import AMR_INFO, AMRMapResponse
+from .httpx_set import headers
+from .type import AMR_INFO, AMRMapResponse, Maps
 
 
 class WebServer:
@@ -29,7 +37,6 @@ class WebServer:
 
         @self._app.get('/all_mir_amr', response_model=AMRMapResponse)
         async def read_root():
-            print(self.register_table)
             res = {
                 serialNum: {
                     'amrId': info['amrId'],
@@ -37,6 +44,7 @@ class WebServer:
                 }
                 for serialNum, info in self.register_table.items()
             }
+            logger.bind(state='[GET]').info('get all mir amr')
             return res
 
         @self._app.post('/create_mir_amr', response_model=AMR_INFO)
@@ -67,6 +75,68 @@ class WebServer:
             pretty_json = update_info.model_dump_json()
             logger.bind(state='[DELETE]').info(f'delete new amr: {pretty_json}')
             return update_info
+
+        @self._app.get('/sync_map', response_model=List[Maps])
+        async def async_map():
+            res: List[Maps] = []
+
+            class Info(BaseModel):
+                url: str
+                guid: str
+                name: str
+
+            class Map_Info(BaseModel):
+                info: List[Info]
+
+            for item in list(self.register_table.values()):
+                try:
+                    url = f'http://{item["ip"]}/api/v2.0.0/maps'
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(url=url, headers=headers, timeout=2)
+                        maps = response.json()
+                        valid_maps = Map_Info(info=maps)
+                        if len(valid_maps.info):
+
+                            class MapDetail(BaseModel):
+                                guid: str
+                                session_id: str
+                                name: str
+                                base_map: str
+                                resolution: float
+                                origin_x: float
+                                origin_y: float
+                                origin_theta: float
+                                positions: str
+                                paths: str
+                                path_guides: str
+                                created_by_id: str
+                                created_by: str
+
+                            for map in valid_maps.info:
+                                get_map_info_url = f'http://{item["ip"]}/api/v2.0.0/maps/{map.guid}'
+                                info_res = await client.get(url=get_map_info_url, headers=headers)
+                                map_detail = info_res.json()
+                                valid_map_detail = MapDetail(**map_detail)
+                                r: Maps = Maps(
+                                    guid=valid_map_detail.guid,
+                                    session_id=valid_map_detail.session_id,
+                                    name=valid_map_detail.name,
+                                    base_map=valid_map_detail.base_map,
+                                    resolution=valid_map_detail.resolution,
+                                    origin_x=valid_map_detail.origin_x,
+                                    origin_y=valid_map_detail.origin_y,
+                                    origin_theta=valid_map_detail.origin_theta,
+                                )
+                                res.append(r)
+                    logger.bind(state='[GET]').info('return sync maps info')
+                    return res
+
+                except PydanticValidationError as e:
+                    raise ValidationError(
+                        message=f'msg: {e.errors()[0]["msg"]}, input: {e.errors()[0]["input"]}'
+                    )
+                except (httpx.HTTPStatusError, Exception):
+                    raise ExternalServiceError(service=item['ip'])
 
     def set_error_handler(self):
         @self._app.exception_handler(AppException)

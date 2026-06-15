@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 
 import websockets
 from reactivex import Subject
@@ -10,7 +11,7 @@ from src.service.rabbitmq import ALL_CONTROL_TYPE, CMD_ID, Rabbit_client_async
 from src.service.rabbitmq.queues import RES_EX
 from src.service.rabbitmq.transaction_wrapper import base_response
 
-from .type import RobotStatus, TFMessage
+from .type import Pose, Quaternion, RobotStatus, TFMessage
 
 
 class Status:
@@ -115,12 +116,30 @@ class Status:
 
             if topic == '/tf':
                 pose_msg_data: TFMessage = payload.get('msg')
+                position = pose_msg_data['transforms'][0]
+                pose: Pose = {
+                    'x': position['transform']['translation']['x'],
+                    'y': position['transform']['translation']['y'],
+                    'yaw': self.sanitize_degree(
+                        self.quaternion_to_yaw(position['transform']['rotation'])
+                    ),
+                }
 
             if topic == '/robot_status':
                 status_msg_data: RobotStatus = payload.get('msg')
+                # print(status_msg_data, '@@@@@@@@@@@@@@@@@@@@')
 
             else:
                 pass
 
         except json.JSONDecodeError:
             print(f'parse error: {raw_message}')
+
+    def quaternion_to_yaw(self, quaternion: Quaternion):
+        sinY_cosP = 2 * (quaternion['x'] * quaternion['z'])
+        cosY_cosP = 1 - 2 * (quaternion['z'] * quaternion['z'])
+        degree = math.atan2(sinY_cosP, cosY_cosP) * (180 / math.pi)
+        return degree
+
+    def sanitize_degree(self, deg: float):
+        return ((deg % 360) + 360) % 360

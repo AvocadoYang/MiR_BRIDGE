@@ -1,6 +1,12 @@
 from typing import List, TypedDict
 
 
+class Pose(TypedDict):
+    x: float
+    y: float
+    yaw: float
+
+
 class Vector3(TypedDict):
     x: float
     y: float

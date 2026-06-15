@@ -13,7 +13,7 @@ from aio_pika.abc import (
 )
 
 from src.helper.helper import format_date
-from src.logger import color, heartbeat_logger, logger
+from src.logger import heartbeat_logger, logger
 
 from .cmd_id import blacklist
 from .connect_impl import Connect_impl
@@ -227,4 +227,4 @@ class Rabbit_client_async(Connect_impl):
                     'MQ', f'Send [res] message ({message["cmd_id"]}) - {json.dumps(message)}'
                 )
         except aiormq.exceptions.PublishError as e:
-            print(f'訊息發送失敗: {e}')
+            print(f'send message failed: {e}')
