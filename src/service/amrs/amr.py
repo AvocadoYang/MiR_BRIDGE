@@ -24,27 +24,24 @@ from src.service.webService import headers
 
 from .heartbeat import Heartbeat
 from .status import Status
-from .type import CONNECT_STATUS
+from .type import AMR_INFO, CONNECT_STATUS
 
 
 class AMR:
     def __init__(
         self,
+        amrId: str,
         mac_address: str,
         ip: str,
         is_enable: bool,
-        amrId: str,
         rabbit_service: Rabbit_client_async,
     ):
-        self.is_enable = is_enable  ## check is enable in qams
-        self.online: bool = False  ## check is connect with qams
+        self.amr_info: AMR_INFO = AMR_INFO(
+            amrId=amrId, mac_address=mac_address, ip=ip, is_enable=is_enable
+        )
 
         self.rabbit_service = rabbit_service
-        self.mac_address: str = mac_address
-        self.ip: str = ip
-        self.amrId: str = amrId
 
-        self.session: str = ''  ## connect session with qams
         self.mir_token: str = ''  ## mir token for websocket create
 
         self.show_get_mir_token_error_log = True  ## log switch of mir token getting function
@@ -92,16 +89,13 @@ class AMR:
 
         ## all of components
         self.heartbeat_c = Heartbeat(
-            amrId=self.amrId,
-            mac_address=self.mac_address,
+            amr_info=self.amr_info,
             receive_request_record=self.receive_request_record,
             rabbit_service=self.rabbit_service,
             heartbeat_sub=self.heartbeat_input_,
         )
         self.status_c = Status(
-            amrId=amrId,
-            ip=ip,
-            mac_address=self.mac_address,
+            amr_info=self.amr_info,
             receive_request_record=self.receive_request_record,
             mir_service_connect_status=self.mir_service_connect_status,
             rabbit_service=self.rabbit_service,
@@ -109,7 +103,7 @@ class AMR:
         )
 
     async def get_MiR_info(self):
-        url = f'http://{self.ip}/api/v2.0.0/users/auth'
+        url = f'http://{self.amr_info.ip}/api/v2.0.0/users/auth'
         while not self.got_mir_token:
             try:
                 async with httpx.AsyncClient() as client:
@@ -120,7 +114,7 @@ class AMR:
                     await self.status_c.ros_bridge_connect(self.mir_token)
             except (httpx.HTTPError, Exception):
                 if self.show_get_mir_token_error_log:
-                    logger.bind(title=self.amrId).error(
+                    logger.bind(title=self.amr_info.amrId).error(
                         f'connect failed: did not get mir token from {url} ，retry after 3s ...',
                     )
                     self.show_get_mir_token_error_log = False
@@ -138,31 +132,33 @@ class AMR:
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    url=url, json={'serialNumber': self.mac_address}, timeout=2
+                    url=url, json={'serialNumber': self.amr_info.mac_address}, timeout=2
                 )
                 data = Schema(**response.json())
                 if data.success:
-                    self.session = data.session
-                    self.online = True
+                    self.amr_info.session = data.session
+                    self.amr_info.online = True
                     self.qams_connect_status.on_next(True)
                     return
 
         except httpx.HTTPError as e:
-            logger.bind(title=self.amrId).error(f'request error: {e}')
+            logger.bind(title=self.amr_info.amrId).error(f'request error: {e}')
         except ValidationError as e:
-            logger.bind(title=self.amrId).error(f'validate error: {e}')
+            logger.bind(title=self.amr_info.amrId).error(f'validate error: {e}')
 
-        logger.bind(title=self.amrId).warning('failed to connect with qams, retry afater 3s...')
+        logger.bind(title=self.amr_info.amrId).warning(
+            'failed to connect with qams, retry afater 3s...'
+        )
         self.qams_connect_status.on_next(False)
         await asyncio.sleep(3)
         asyncio.create_task(self.connect_with_qams())
 
     async def init_queues_and_bind_with_exchange(self):
         if not len(self.queues):
-            queue_pairs = get_all_queue_exchange_relationship(self.mac_address)
+            queue_pairs = get_all_queue_exchange_relationship(self.amr_info.mac_address)
             for pair in queue_pairs:
                 queue = await self.rabbit_service.create_queue_and_bind(
-                    amrId=self.amrId,
+                    amrId=self.amr_info.amrId,
                     queue_name=pair['q_name'],
                     exchange=pair['bind_ex'],
                     routing_key=pair['key'],
@@ -170,17 +166,17 @@ class AMR:
                 )
                 if queue is not None:
                     self.queues[pair['q_name']] = queue
-            need_consume_queue = dynamicListener_queues(serialNum=self.mac_address)
+            need_consume_queue = dynamicListener_queues(serialNum=self.amr_info.mac_address)
             for queue_name in need_consume_queue:
-                if queue_name == heartbeatPingQName(self.mac_address):
+                if queue_name == heartbeatPingQName(self.amr_info.mac_address):
                     await self.rabbit_service.consume_queue(
                         self.queues[queue_name], cb=self.__heartbeat_consumer
                     )
-                if queue_name == q2a_controlQName(self.mac_address):
+                if queue_name == q2a_controlQName(self.amr_info.mac_address):
                     await self.rabbit_service.consume_queue(
                         self.queues[queue_name], cb=self.__control_consumer
                     )
-                if queue_name == q2a_amrResponseQName(self.mac_address):
+                if queue_name == q2a_amrResponseQName(self.amr_info.mac_address):
                     pass
 
     def __heartbeat_consumer(self, msg: HEARTBEAT):
@@ -202,7 +198,7 @@ class AMR:
         qams_r = 'qams: connect ✅' if qams_c else 'qams: disconnect ❌'
         rabbit_r = 'rabbitmq: connect ✅' if rabbit_c else 'rabbitmq: disconnect ❌'
         mir_service_r = 'mir_service: connect ✅' if amr_service_c else 'mir_service: disconnect ❌'
-        logger.bind(title=self.amrId).info(
+        logger.bind(title=self.amr_info.amrId).info(
             f'service status:  {qams_r} / {rabbit_r} / {mir_service_r}'
         )
 
@@ -216,4 +212,4 @@ class AMR:
         if not qams_connect and rabbitmq_connect:
             asyncio.create_task(self.connect_with_qams())
         else:
-            self.online = False
+            self.amr_info.online = False

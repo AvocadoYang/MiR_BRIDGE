@@ -1,5 +1,7 @@
 from typing import List, TypedDict
 
+from pydantic import BaseModel
+
 
 class Pose(TypedDict):
     x: float
@@ -143,3 +145,12 @@ class CONNECT_STATUS(TypedDict):
     qams_is_connect: bool
     mir_service_is_connect: bool
     rabbitmq_is_connect: bool
+
+
+class AMR_INFO(BaseModel):
+    amrId: str = ''
+    mac_address: str = ''
+    ip: str = ''
+    is_enable: bool = False
+    online: bool = False
+    session: str = ''

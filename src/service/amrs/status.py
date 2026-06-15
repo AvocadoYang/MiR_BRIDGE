@@ -8,27 +8,26 @@ from reactivex.subject import BehaviorSubject
 
 from src.logger import logger
 from src.service.rabbitmq import ALL_CONTROL_TYPE, CMD_ID, Rabbit_client_async
-from src.service.rabbitmq.queues import RES_EX
-from src.service.rabbitmq.transaction_wrapper import base_response
+from src.service.rabbitmq.queues import IO_EX, RES_EX
+from src.service.rabbitmq.transaction_wrapper import Send_Pose, base_response
+from src.service.rabbitmq.type import PUBLISH_OPTIONS
 
-from .type import Pose, Quaternion, RobotStatus, TFMessage
+from .type import AMR_INFO, Pose, Quaternion, RobotStatus, TFMessage
 
 
 class Status:
     def __init__(
         self,
-        ip: str,
-        amrId: str,
-        mac_address: str,
+        amr_info: AMR_INFO,
         mir_service_connect_status: BehaviorSubject[bool],
         receive_request_record: dict[str, str],
         rabbit_service: Rabbit_client_async,
         control_transaction_sub_: Subject[ALL_CONTROL_TYPE],
     ):
+        self.amr_info = amr_info
+        self.position: Pose = Pose(x=0, y=0, yaw=0)
         self.mir_token = ''
-        self.ip = ip
-        self.mac_address = mac_address
-        self.amrId = amrId
+
         self.receive_request_record = receive_request_record
         self.mir_service_connect_status: BehaviorSubject[bool] = mir_service_connect_status
         self.rb = rabbit_service
@@ -41,9 +40,9 @@ class Status:
             asyncio.create_task(
                 self.rb.res_publish(
                     exchange_name=RES_EX,
-                    routing_key=f'qams.{self.mac_address}.res.updateMap',
+                    routing_key=f'qams.{self.amr_info.mac_address}.res.updateMap',
                     last_receive_req=self.receive_request_record,
-                    mac_address=self.mac_address,
+                    mac_address=self.amr_info.mac_address,
                     message=self.__transaction_res(action=action, return_code='200'),
                 )
             )
@@ -65,7 +64,7 @@ class Status:
         """
         self.mir_token = mir_token
 
-        url = f'ws://{self.ip}/rosbridge/'
+        url = f'ws://{self.amr_info.ip}/rosbridge/'
         cookie_header = {'Cookie': f'mir-auth-token={self.mir_token}'}
 
         while True:
@@ -81,7 +80,7 @@ class Status:
                         sub_msg = {'op': 'subscribe', 'topic': topic}
                         await websocket.send(json.dumps(sub_msg))
 
-                    logger.bind(title=self.amrId).info(
+                    logger.bind(title=self.amr_info.amrId).info(
                         'ROS Bridge connect successfully, QAMS bridge was connect with amr.'
                     )
                     self.mir_service_connect_status.on_next(True)
@@ -94,11 +93,11 @@ class Status:
                         await self._handle_ros_message(message_str)
 
             except websockets.ConnectionClosed as e:
-                logger.bind(title=self.amrId).warning(
+                logger.bind(title=self.amr_info.amrId).warning(
                     f'ROS Bridge disconnection ({e}), retry connect after 3s ...'
                 )
             except Exception as e:
-                logger.bind(title=self.amrId).error(
+                logger.bind(title=self.amr_info.amrId).error(
                     f'ROS Bridge connects failed: {e}, retry connect after 3s ...'
                 )
 
@@ -124,6 +123,18 @@ class Status:
                         self.quaternion_to_yaw(position['transform']['rotation'])
                     ),
                 }
+                self.position = pose
+                msg = Send_Pose(**pose)
+                options = PUBLISH_OPTIONS()
+                options.expiration = 2
+                await self.rb.req_publish(
+                    exchange_name=IO_EX,
+                    routing_key=f'amr.io.{self.amr_info.amrId}.ioInfo',
+                    amr_info=self.amr_info,
+                    message=msg,
+                    options=options,
+                )
+                return
 
             if topic == '/robot_status':
                 status_msg_data: RobotStatus = payload.get('msg')

@@ -1,5 +1,7 @@
 from typing import Any, Dict, TypedDict, Union
 
+from pydantic import BaseModel
+
 from .action import Heartbeat
 from .cmd_id import CMD_ID
 from .type import Error_Info, Pose
@@ -26,6 +28,13 @@ def send_heartbeat_res(heartbeat: int, id: str, amrId: str) -> Heartbeat:
 
 def send_pose_localization(is_accurate: bool):
     return {'cmd_id': CMD_ID.CHECK_POSITION.value, 'isAccurate': is_accurate}
+
+
+class Send_Pose(BaseModel):
+    cmd_id: str = CMD_ID.POSE.value
+    x: float
+    y: float
+    yaw: float
 
 
 def send_pose(pose: Pose):
@@ -67,6 +76,8 @@ def send_feedback(feedback_json: str):
 def send_mission_result(msg: Dict[str, Dict[str, Any]]):
     return {'cmd_id': CMD_ID.READ_STATUS.value, **msg}
 
+
+ALL_REQUEST_MSG_FORMATE = Union[Send_Pose]
 
 ## response fn
 
