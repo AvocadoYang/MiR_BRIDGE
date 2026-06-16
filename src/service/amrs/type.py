@@ -59,7 +59,6 @@ class Velocity(TypedDict):
     angular: float
 
 
-# --- 錯誤訊息相關 ---
 class RobotError(TypedDict):
     timestamp: Stamp
     code: int
@@ -69,7 +68,6 @@ class RobotError(TypedDict):
     non_resettable: bool
 
 
-# --- 掛鉤 (Hook) 相關 ---
 class Trolley(TypedDict):
     id: str
     length: float
@@ -116,13 +114,13 @@ class RobotStatus(TypedDict):
     battery_voltage: float
     distance_to_next_target: float
     errors: List[RobotError]
-    footprint: str  # 注意：MiR 噴出來的 footprint 通常是 JSON 格式的字串
+    footprint: str
     hook_status: HookStatus
     hook_data: HookData
     map_id: str
     unloaded_map_changes: bool
     mission_queue_id: int
-    mission_text: str  # 這是 JSON 字串，例如 '{"message": "..."}'
+    mission_text: str
     mode_id: int
     mode_text: str
     moved: float

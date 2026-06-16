@@ -136,7 +136,7 @@ class WebServer:
                                 session_info = session_res.json()
                                 valid_session_info = SessionDetail(**session_info)
                                 r: Maps = Maps(
-                                    guid=valid_map_detail.guid,
+                                    guid=valid_map_detail.guid,  # map id
                                     session_id=valid_map_detail.session_id,  # site id
                                     group_name=valid_session_info.name,
                                     name=valid_map_detail.name,
@@ -156,6 +156,18 @@ class WebServer:
                     )
                 except (httpx.HTTPStatusError, Exception):
                     raise ExternalServiceError(service=item['ip'])
+
+        @self._app.post('/add_position')
+        async def add_position():
+            pass
+
+        @self._app.delete('/delete_position')
+        async def delete_position():
+            pass
+
+        @self._app.post('/update_position')
+        async def update_position():
+            pass
 
     def set_error_handler(self):
         @self._app.exception_handler(AppException)

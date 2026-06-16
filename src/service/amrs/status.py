@@ -12,7 +12,13 @@ from src.service.rabbitmq.queues import IO_EX, RES_EX
 from src.service.rabbitmq.transaction_wrapper import Send_Pose, base_response
 from src.service.rabbitmq.type import PUBLISH_OPTIONS
 
-from .type import AMR_INFO, Pose, Quaternion, RobotStatus, TFMessage
+from .type import (
+    AMR_INFO,
+    Pose,
+    Quaternion,
+    RobotStatus,
+    TFMessage,
+)
 
 
 class Status:
@@ -83,6 +89,9 @@ class Status:
                     logger.bind(title=self.amr_info.amrId).info(
                         'ROS Bridge connect successfully, QAMS bridge was connect with amr.'
                     )
+
+                    # await self.get_mir_amr_map_resource()
+
                     self.mir_service_connect_status.on_next(True)
                     async for message in websocket:
                         if isinstance(message, bytes):

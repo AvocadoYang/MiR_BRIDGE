@@ -47,7 +47,6 @@ class MiR_BRIDGE:
         """
 
         task = []
-
         for serialNum, amr_info in self.register_table.items():
             amr = AMR(
                 mac_address=serialNum,

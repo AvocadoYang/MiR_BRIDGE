@@ -1,14 +1,15 @@
 import asyncio
-from typing import Tuple
+from typing import List, Tuple
 
 import httpx
 from aio_pika.abc import AbstractQueue
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, RootModel, ValidationError
 from reactivex import Subject, combine_latest
 from reactivex.operators import distinct_until_changed, do_action
 from reactivex.subject import BehaviorSubject
 
 from src.configs import config
+from src.dtypes import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
 from src.logger import logger
 from src.service.rabbitmq import (
     ALL_CONTROL_TYPE,
@@ -36,6 +37,8 @@ class AMR:
         is_enable: bool,
         rabbit_service: Rabbit_client_async,
     ):
+        self.map_resource_is_init: bool = False
+
         self.amr_info: AMR_INFO = AMR_INFO(
             amrId=amrId, mac_address=mac_address, ip=ip, is_enable=is_enable
         )
@@ -43,6 +46,7 @@ class AMR:
         self.rabbit_service = rabbit_service
 
         self.mir_token: str = ''  ## mir token for websocket create
+        self.user_uuid: str = ''
 
         self.show_get_mir_token_error_log = True  ## log switch of mir token getting function
         self.got_mir_token = False  ## loop controler of mir token gettin function
@@ -132,11 +136,15 @@ class AMR:
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    url=url, json={'serialNumber': self.amr_info.mac_address}, timeout=2
+                    url=url,
+                    json={'serialNumber': self.amr_info.mac_address},
+                    timeout=2,
                 )
                 data = Schema(**response.json())
                 if data.success:
                     self.amr_info.session = data.session
+                    if not self.map_resource_is_init:
+                        await self.init_map_resource()
                     self.qams_connect_status.on_next(True)
                     return
 
@@ -215,7 +223,98 @@ class AMR:
             self.queues.clear()
         if rabbitmq_connect and (len(self.queues) == 0):
             asyncio.create_task(self.init_queues_and_bind_with_exchange())
-        if not qams_connect and rabbitmq_connect:
+        if not qams_connect and rabbitmq_connect and mir_serive_connect:
             asyncio.create_task(self.connect_with_qams())
         else:
             self.amr_info.online = False
+
+    async def init_map_resource(self):
+
+        ## below for qams
+        class Location(BaseModel):
+            id: str
+            locationId: str
+            x: float
+            y: float
+            offset_x: float
+            offset_y: float
+            canRotate: bool
+            rotate: float
+            areaType: PeripheralType
+            cost: int
+            connectedRoadIds: List[str]
+            footprint: Footprint
+            neighborIds: List[str]
+
+            map_id: str
+
+        class ALL_Location(BaseModel):
+            locations: List[Location]
+
+        ## below for mir
+        class ALL_POSITIONS(BaseModel):
+            guid: str
+            url: str
+            name: str
+            map: str
+            type_id: int
+
+        class ALL_POSITION_SCHEMA(RootModel[List[ALL_POSITIONS]]):
+            pass
+
+        class NewPosition(BaseModel):
+            bar_distance: int
+            bar_length: int
+            detect_offset_x: float
+            map_id: str
+            name: str
+            offset_orientation: int
+            offset_x: int
+            offset_y: int
+            orientation: float
+            pos_x: float
+            pos_y: float
+            shelf_leg_asymmetry_x: int
+            type_id: int
+
+        try:
+            url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/test/map?type=locations'
+            async with httpx.AsyncClient() as client:
+                locations_res = await client.get(url=url, headers=headers, timeout=3)
+
+                valid_data = ALL_Location(**locations_res.json())
+
+                ## delete all position in mir
+                url = f'http://{self.amr_info.ip}/api/v2.0.0/positions'
+                positions_response = await client.get(url=url, headers=headers, timeout=3)
+                valid_all_position = ALL_POSITION_SCHEMA(positions_response.json())
+                for position in valid_all_position.root:
+                    delete_url = f'http://{self.amr_info.ip}/api/v2.0.0/positions/{position.guid}'
+                    await client.delete(url=delete_url, headers=headers, timeout=3)
+                if len(valid_data.locations) == 0:
+                    return
+
+                for location in valid_data.locations:
+                    if location.areaType not in [PeripheralType.CHARGING, PeripheralType.EXTRA]:
+                        continue
+                    new_position = NewPosition(
+                        bar_distance=0,
+                        bar_length=0,
+                        detect_offset_x=0,
+                        map_id=location.map_id,
+                        name=location.locationId,
+                        offset_orientation=0,
+                        offset_x=0,
+                        offset_y=0,
+                        orientation=location.rotate,
+                        pos_x=location.x,
+                        pos_y=location.y,
+                        shelf_leg_asymmetry_x=0,
+                        type_id=PERIPHERAL_TYPE_MAP.get(location.areaType, 0),
+                    )
+                    await client.post(
+                        url=url, headers=headers, json=new_position.model_dump(), timeout=3
+                    )
+
+        except (httpx.HTTPStatusError, Exception) as e:
+            print(e)
