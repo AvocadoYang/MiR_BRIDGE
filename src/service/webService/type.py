@@ -11,6 +11,7 @@ class Maps(BaseModel):
     guid: str
     session_id: str
     name: str
+    group_name: str
     base_map: str
     resolution: float
     origin_x: float

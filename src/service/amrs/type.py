@@ -153,4 +153,5 @@ class AMR_INFO(BaseModel):
     ip: str = ''
     is_enable: bool = False
     online: bool = False
+    is_connect: bool = False
     session: str = ''

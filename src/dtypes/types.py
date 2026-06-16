@@ -4,14 +4,7 @@ if TYPE_CHECKING:
     from src.service import AMR
 
 
-class AMR_INFO(TypedDict):
-    full_name: str
-    ip: str
-    serialNum: str
-    is_enable: bool
-
-
-class AMR_INFO_DETAIL(TypedDict):
+class REGISTER_TABLE(TypedDict):
     ip: str
     serialNum: str
     amrId: str

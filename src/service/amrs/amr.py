@@ -137,7 +137,6 @@ class AMR:
                 data = Schema(**response.json())
                 if data.success:
                     self.amr_info.session = data.session
-                    self.amr_info.online = True
                     self.qams_connect_status.on_next(True)
                     return
 
@@ -205,6 +204,13 @@ class AMR:
     ## (qams, rabbitmq, mir_service)
     def connect_behavior(self, connect_list: Tuple[bool, bool, bool]):
         qams_connect, rabbitmq_connect, mir_serive_connect = connect_list
+
+        self.amr_info.is_connect = True if mir_serive_connect else False
+
+        if qams_connect and rabbitmq_connect and mir_serive_connect:
+            self.amr_info.online = True
+            return
+
         if not rabbitmq_connect:
             self.queues.clear()
         if rabbitmq_connect and (len(self.queues) == 0):

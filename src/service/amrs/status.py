@@ -127,6 +127,25 @@ class Status:
                 msg = Send_Pose(**pose)
                 options = PUBLISH_OPTIONS()
                 options.expiration = 2
+                # await self.rb.req_publish(
+                #     exchange_name=IO_EX,
+                #     routing_key=f'amr.io.{self.amr_info.amrId}.ioInfo',
+                #     amr_info=self.amr_info,
+                #     message=msg,
+                #     options=options,
+                # )
+                return
+
+            if topic == '/robot_status':
+                status_msg_data: RobotStatus = payload.get('msg')
+                pose: Pose = {
+                    'x': status_msg_data['position']['x'],
+                    'y': status_msg_data['position']['y'],
+                    'yaw': status_msg_data['position']['orientation'],
+                }
+                msg = Send_Pose(**pose)
+                options = PUBLISH_OPTIONS()
+                options.expiration = 2
                 await self.rb.req_publish(
                     exchange_name=IO_EX,
                     routing_key=f'amr.io.{self.amr_info.amrId}.ioInfo',
@@ -134,11 +153,6 @@ class Status:
                     message=msg,
                     options=options,
                 )
-                return
-
-            if topic == '/robot_status':
-                status_msg_data: RobotStatus = payload.get('msg')
-                # print(status_msg_data, '@@@@@@@@@@@@@@@@@@@@')
 
             else:
                 pass

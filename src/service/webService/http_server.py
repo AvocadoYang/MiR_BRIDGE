@@ -23,9 +23,9 @@ from .type import AMR_INFO, AMRMapResponse, Maps
 
 class WebServer:
     def __init__(self, register, register_table):
-        from src.dtypes import AMR_INFO_DETAIL
+        from src.dtypes import REGISTER_TABLE
 
-        self.register_table: dict[str, AMR_INFO_DETAIL] = register_table
+        self.register_table: dict[str, REGISTER_TABLE] = register_table
         self._app = FastAPI(lifespan=register)
         self._app.router.route_class = CustomSuccessRoute
         self.set_error_handler()
@@ -112,14 +112,33 @@ class WebServer:
                                 created_by_id: str
                                 created_by: str
 
+                            class SessionDetail(BaseModel):
+                                guid: str
+                                name: str
+                                description: str
+                                maps: str
+                                export: str
+                                created_by_id: str
+                                created_by: str
+                                active: bool
+                                allowed_methods: List[str]
+                                created_by_name: str
+
                             for map in valid_maps.info:
                                 get_map_info_url = f'http://{item["ip"]}/api/v2.0.0/maps/{map.guid}'
                                 info_res = await client.get(url=get_map_info_url, headers=headers)
                                 map_detail = info_res.json()
                                 valid_map_detail = MapDetail(**map_detail)
+                                get_session_info_url = f'http://{item["ip"]}/api/v2.0.0/sessions/{valid_map_detail.session_id}'
+                                session_res = await client.get(
+                                    get_session_info_url, headers=headers
+                                )
+                                session_info = session_res.json()
+                                valid_session_info = SessionDetail(**session_info)
                                 r: Maps = Maps(
                                     guid=valid_map_detail.guid,
-                                    session_id=valid_map_detail.session_id,
+                                    session_id=valid_map_detail.session_id,  # site id
+                                    group_name=valid_session_info.name,
                                     name=valid_map_detail.name,
                                     base_map=valid_map_detail.base_map,
                                     resolution=valid_map_detail.resolution,
@@ -161,3 +180,6 @@ class WebServer:
                     status_code=exc.status_code, error_code=exc.error_code, message=str(exc.message)
                 ),
             )
+
+    async def mir_amr_sync_map_each_other(self):
+        pass
