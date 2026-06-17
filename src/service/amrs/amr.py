@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import httpx
 from aio_pika.abc import AbstractQueue
@@ -107,12 +107,22 @@ class AMR:
         )
 
     async def get_MiR_info(self):
+        class InfoSchema(BaseModel):
+            user_id: str
+            ip: str
+            login_time: str
+            expiration_time: str
+            token: str
+            allowed_methods: Union[str, None]
+
         url = f'http://{self.amr_info.ip}/api/v2.0.0/users/auth'
         while not self.got_mir_token:
             try:
                 async with httpx.AsyncClient() as client:
                     response = await client.post(url=url, headers=headers, timeout=2)
-                    self.mir_token = response.json()['token']
+                    valid_data = InfoSchema(**response.json())
+                    self.mir_token = valid_data.token
+                    self.user_uuid = valid_data.user_id
                     self.got_mir_token = True
                     self.show_get_mir_token_error_log = True
                     await self.status_c.ros_bridge_connect(self.mir_token)
@@ -263,19 +273,14 @@ class AMR:
             pass
 
         class NewPosition(BaseModel):
-            bar_distance: int
-            bar_length: int
-            detect_offset_x: float
-            map_id: str
+            guid: str
             name: str
-            offset_orientation: int
-            offset_x: int
-            offset_y: int
-            orientation: float
             pos_x: float
             pos_y: float
-            shelf_leg_asymmetry_x: int
+            orientation: float
             type_id: int
+            map_id: str
+            created_by_id: str
 
         try:
             url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/test/map?type=locations'
@@ -298,23 +303,19 @@ class AMR:
                     if location.areaType not in [PeripheralType.CHARGING, PeripheralType.EXTRA]:
                         continue
                     new_position = NewPosition(
-                        bar_distance=0,
-                        bar_length=0,
-                        detect_offset_x=0,
-                        map_id=location.map_id,
+                        guid=location.id,
                         name=location.locationId,
-                        offset_orientation=0,
-                        offset_x=0,
-                        offset_y=0,
-                        orientation=location.rotate,
                         pos_x=location.x,
                         pos_y=location.y,
-                        shelf_leg_asymmetry_x=0,
+                        orientation=location.rotate,
                         type_id=PERIPHERAL_TYPE_MAP.get(location.areaType, 0),
+                        map_id=location.map_id,
+                        created_by_id=self.user_uuid,
                     )
                     await client.post(
                         url=url, headers=headers, json=new_position.model_dump(), timeout=3
                     )
+            logger.bind(title=self.amr_info.amrId).info('resource sync successful')
 
         except (httpx.HTTPStatusError, Exception) as e:
             print(e)

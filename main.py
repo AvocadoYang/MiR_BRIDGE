@@ -35,7 +35,6 @@ class MiR_BRIDGE:
         success = await self.rabbitmq.connect()
         if not success:
             self.rabbitmq._trigger_reconnect()
-        await self.web_server.run()
         try:
             yield
         finally:
