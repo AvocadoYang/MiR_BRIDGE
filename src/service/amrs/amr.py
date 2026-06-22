@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from typing import List, Tuple, Union
 
 import httpx
@@ -92,12 +93,20 @@ class AMR:
         )
 
         ## all of components
+
+        ## heartbeat component
         self.heartbeat_c = Heartbeat(
             amr_info=self.amr_info,
             receive_request_record=self.receive_request_record,
             rabbit_service=self.rabbit_service,
             heartbeat_sub=self.heartbeat_input_,
         )
+
+        self.heartbeat_c.qams_timeout_signal.subscribe(
+            lambda action: self.qams_connect_status.on_next(False)
+        )
+
+        ## status component
         self.status_c = Status(
             amr_info=self.amr_info,
             receive_request_record=self.receive_request_record,
@@ -154,18 +163,19 @@ class AMR:
                 if data.success:
                     self.amr_info.session = data.session
                     if not self.map_resource_is_init:
-                        await self.init_map_resource()
+                        await self.set_amr_resource()
                     self.qams_connect_status.on_next(True)
                     return
 
         except httpx.HTTPError as e:
-            logger.bind(title=self.amr_info.amrId).error(f'request error: {e}')
+            logger.bind(title=self.amr_info.amrId).error(
+                f'QAMS request error: {e},  retry afater 3s...'
+            )
         except ValidationError as e:
-            logger.bind(title=self.amr_info.amrId).error(f'validate error: {e}')
+            logger.bind(title=self.amr_info.amrId).error(
+                f'QAMS validate error: {e},  retry afater 3s...'
+            )
 
-        logger.bind(title=self.amr_info.amrId).warning(
-            'failed to connect with qams, retry afater 3s...'
-        )
         self.qams_connect_status.on_next(False)
         await asyncio.sleep(3)
         asyncio.create_task(self.connect_with_qams())
@@ -227,6 +237,7 @@ class AMR:
 
         if qams_connect and rabbitmq_connect and mir_serive_connect:
             self.amr_info.online = True
+            self.heartbeat_c.start_heartbeat_watchdog.on_next(True)
             return
 
         if not rabbitmq_connect:
@@ -238,9 +249,40 @@ class AMR:
         else:
             self.amr_info.online = False
 
-    async def init_map_resource(self):
+    async def set_amr_resource(self):
 
-        ## below for qams
+        ## maps type from qams
+
+        class Map(BaseModel):
+            id: str
+            isUsing: bool
+            fileName: str
+            mapOriginX: float
+            mapOriginY: float
+            mapWidth: float
+            mapHeight: float
+            scale: float
+            resolution: float
+            scrollX: float
+            scrollY: float
+            floor: float
+            map_group: str
+            map_group_id: str
+
+        class ALL_Maps(BaseModel):
+            allMap: List[Map]
+            systemFilePath: str
+
+        class ADD_Map(BaseModel):
+            guid: str
+            name: str
+            origin_theta: float
+            origin_x: float
+            origin_y: float
+            resolution: float
+            session_id: str
+
+        ## location type from qams
         class Location(BaseModel):
             id: str
             locationId: str
@@ -261,7 +303,7 @@ class AMR:
         class ALL_Location(BaseModel):
             locations: List[Location]
 
-        ## below for mir
+        ## location type from mir
         class ALL_POSITIONS(BaseModel):
             guid: str
             url: str
@@ -283,9 +325,65 @@ class AMR:
             created_by_id: str
 
         try:
-            url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/test/map?type=locations'
+            get_loc_url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/test/map?type=locations'
+            get_all_map_url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/setting/get-allMapData'
             async with httpx.AsyncClient() as client:
-                locations_res = await client.get(url=url, headers=headers, timeout=3)
+                maps_res = await client.get(url=get_all_map_url, headers=headers, timeout=3)
+                valid_maps_data = ALL_Maps(**maps_res.json())
+
+                for map in valid_maps_data.allMap:
+                    if map.map_group_id == 'None':
+                        continue
+                    try:
+                        get_session_url = (
+                            f'http://{self.amr_info.ip}/api/v2.0.0/sessions/{map.map_group_id}'
+                        )
+                        has_session = await client.get(
+                            url=get_session_url, headers=headers, timeout=3
+                        )
+                        if 'error_code' in has_session.json():
+                            new_session = {'name': map.map_group, 'guid': map.map_group_id}
+                            data = await client.post(
+                                url=f'http://{self.amr_info.ip}/api/v2.0.0/sessions',
+                                json=new_session,
+                                headers=headers,
+                                timeout=3,
+                            )
+
+                        get_map_url = f'http://{self.amr_info.ip}/api/v2.0.0/maps/{map.id}'
+                        data = await client.get(url=get_map_url, headers=headers, timeout=3)
+                        if 'error_code' in data.json():
+                            add_map_url = f'http://{self.amr_info.ip}/api/v2.0.0/maps/'
+                            new_map = ADD_Map(
+                                guid=map.id,
+                                name=Path(map.fileName).stem,
+                                origin_theta=0,
+                                origin_x=map.mapOriginX,
+                                origin_y=map.mapOriginY,
+                                resolution=map.resolution,
+                                session_id=map.map_group_id,
+                            )
+
+                            await client.post(
+                                url=add_map_url,
+                                headers=headers,
+                                json=new_map.model_dump(),
+                                timeout=3,
+                            )
+
+                            # update_map_url = f'http://{self.amr_info.ip}/api/v2.0.0/maps/{map.id}'
+                            # update_map_data = {
+
+                            # }
+                            # await client.post(
+                            #     url=update_map_url,
+                            #     headers=headers,
+                            #     json=
+                            # )
+                    except Exception:
+                        pass
+
+                locations_res = await client.get(url=get_loc_url, headers=headers, timeout=3)
 
                 valid_data = ALL_Location(**locations_res.json())
 
@@ -318,4 +416,4 @@ class AMR:
             logger.bind(title=self.amr_info.amrId).info('resource sync successful')
 
         except (httpx.HTTPStatusError, Exception) as e:
-            print(e)
+            print(e, '!!!!!!!!!!!!!!!!!!!!')

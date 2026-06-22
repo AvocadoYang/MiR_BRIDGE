@@ -48,6 +48,35 @@ class LocationIDs(BaseModel):
     locationIds: List[str]
 
 
+class MapDetail(BaseModel):
+    guid: str
+    session_id: str
+    name: str
+    base_map: str
+    resolution: float
+    origin_x: float
+    origin_y: float
+    origin_theta: float
+    positions: str
+    paths: str
+    path_guides: str
+    created_by_id: str
+    created_by: str
+
+
+class SessionDetail(BaseModel):
+    guid: str
+    name: str
+    description: str
+    maps: str
+    export: str
+    created_by_id: str
+    created_by: str
+    active: bool
+    allowed_methods: List[str]
+    created_by_name: str
+
+
 @router.post('/add_position')
 async def add_position(request: Request, new_position: Location):
     try:
@@ -125,34 +154,6 @@ async def async_map(request: Request):
                 maps = response.json()
                 valid_maps = Map_Info(info=maps)
                 if len(valid_maps.info):
-
-                    class MapDetail(BaseModel):
-                        guid: str
-                        session_id: str
-                        name: str
-                        base_map: str
-                        resolution: float
-                        origin_x: float
-                        origin_y: float
-                        origin_theta: float
-                        positions: str
-                        paths: str
-                        path_guides: str
-                        created_by_id: str
-                        created_by: str
-
-                    class SessionDetail(BaseModel):
-                        guid: str
-                        name: str
-                        description: str
-                        maps: str
-                        export: str
-                        created_by_id: str
-                        created_by: str
-                        active: bool
-                        allowed_methods: List[str]
-                        created_by_name: str
-
                     for map in valid_maps.info:
                         get_map_info_url = f'http://{item["ip"]}/api/v2.0.0/maps/{map.guid}'
                         info_res = await client.get(url=get_map_info_url, headers=headers)
@@ -166,7 +167,7 @@ async def async_map(request: Request):
                         valid_session_info = SessionDetail(**session_info)
                         r: Maps = Maps(
                             guid=valid_map_detail.guid,  # map id
-                            session_id=valid_map_detail.session_id,  # site id
+                            session_id=valid_map_detail.session_id,  # site id or group id
                             group_name=valid_session_info.name,
                             name=valid_map_detail.name,
                             base_map=valid_map_detail.base_map,
@@ -177,11 +178,10 @@ async def async_map(request: Request):
                         )
                         res.append(r)
             logger.bind(state='[GET]').info('return sync maps info')
-            return res
-
         except PydanticValidationError as e:
             raise ValidationError(
                 message=f'msg: {e.errors()[0]["msg"]}, input: {e.errors()[0]["input"]}'
             )
         except (httpx.HTTPStatusError, Exception):
             raise ExternalServiceError(service=item['ip'])
+    return res

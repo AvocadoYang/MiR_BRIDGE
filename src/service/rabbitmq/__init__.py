@@ -1,4 +1,4 @@
-from .action import ALL_CONTROL_TYPE, HEARTBEAT
+from .action import ALL_CONTROL_TYPE, HEARTBEAT, Heartbeat
 from .cmd_id import CMD_ID, blacklist
 from .queues import (
     dynamicListener_queues,
@@ -10,6 +10,7 @@ from .queues import (
 from .rabbit_client_io import Rabbit_client_async
 
 __all__ = [
+    'Heartbeat',
     'Rabbit_client_async',
     'get_all_queue_exchange_relationship',
     'dynamicListener_queues',

@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from .action import Heartbeat
 from .cmd_id import CMD_ID
-from .type import Error_Info, Pose
+from .type import Error_Info
 
 
 class Base_Response_Formate(TypedDict):
@@ -22,6 +22,13 @@ class Write_Status_Response(Base_Response_Formate):
 ALL_RESPONSE_MSG_FORMATE = Union[Base_Response_Formate, Heartbeat, Write_Status_Response]
 
 
+class SendHeartBeatRes(BaseModel):
+    id: str
+    cmd_id: str = CMD_ID.HEARTBEAT.value
+    amrId: str
+    heartbeat: int
+
+
 def send_heartbeat_res(heartbeat: int, id: str, amrId: str) -> Heartbeat:
     return {'id': id, 'cmd_id': CMD_ID.HEARTBEAT.value, 'amrId': amrId, 'heartbeat': heartbeat}
 
@@ -35,10 +42,6 @@ class Send_Pose(BaseModel):
     x: float
     y: float
     yaw: float
-
-
-def send_pose(pose: Pose):
-    return {'cmd_id': CMD_ID.POSE.value, **pose}
 
 
 def send_error_info(error_info: Error_Info):
