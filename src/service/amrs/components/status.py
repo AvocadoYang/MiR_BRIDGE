@@ -9,10 +9,10 @@ from reactivex.subject import BehaviorSubject
 from src.logger import logger
 from src.service.rabbitmq import ALL_CONTROL_TYPE, CMD_ID, Rabbit_client_async
 from src.service.rabbitmq.queues import IO_EX, RES_EX
-from src.service.rabbitmq.transaction_wrapper import Send_Pose, base_response
+from src.service.rabbitmq.transaction_wrapper import Send_MiR_AMR_STATUE, Send_Pose, transaction_res
 from src.service.rabbitmq.type import PUBLISH_OPTIONS
 
-from .type import (
+from ..type import (
     AMR_INFO,
     Pose,
     Quaternion,
@@ -38,6 +38,8 @@ class Status:
         self.mir_service_connect_status: BehaviorSubject[bool] = mir_service_connect_status
         self.rb = rabbit_service
 
+        self.amr_status_signal: Subject[str] = Subject()
+
         control_transaction_sub_.subscribe(self.action_processor)
 
     def action_processor(self, action: ALL_CONTROL_TYPE):
@@ -49,20 +51,9 @@ class Status:
                     routing_key=f'qams.{self.amr_info.mac_address}.res.updateMap',
                     last_receive_req=self.receive_request_record,
                     mac_address=self.amr_info.mac_address,
-                    message=self.__transaction_res(action=action, return_code='200'),
+                    message=transaction_res(action=action, return_code='200'),
                 )
             )
-
-    def __transaction_res(self, action: ALL_CONTROL_TYPE, return_code: str):
-        payload = action['payload']
-        return base_response(
-            {
-                'cmd_id': payload['cmd_id'],
-                'amrId': payload['amrId'],
-                'id': payload['id'],
-                'return_code': return_code,
-            }
-        )
 
     async def ros_bridge_connect(self, mir_token: str):
         """
@@ -152,14 +143,23 @@ class Status:
                     'y': status_msg_data['position']['y'],
                     'yaw': status_msg_data['position']['orientation'],
                 }
-                msg = Send_Pose(**pose)
+                pose_msg = Send_Pose(**pose)
                 options = PUBLISH_OPTIONS()
                 options.expiration = 2
                 await self.rb.req_publish(
                     exchange_name=IO_EX,
-                    routing_key=f'amr.io.{self.amr_info.amrId}.ioInfo',
+                    routing_key=f'amr.io.{self.amr_info.amrId}.pose',
                     amr_info=self.amr_info,
-                    message=msg,
+                    message=pose_msg,
+                    options=options,
+                )
+                self.amr_status_signal.on_next(status_msg_data['state_text'])
+                status_msg = Send_MiR_AMR_STATUE(status=status_msg_data['state_text'])
+                await self.rb.req_publish(
+                    exchange_name=IO_EX,
+                    routing_key=f'amr.io.{self.amr_info.amrId}.mir_amr_status',
+                    amr_info=self.amr_info,
+                    message=status_msg,
                     options=options,
                 )
 

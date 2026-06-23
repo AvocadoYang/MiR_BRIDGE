@@ -1,8 +1,8 @@
-from typing import Any, Dict, TypedDict, Union
+from typing import TypedDict, Union
 
 from pydantic import BaseModel
 
-from .action import Heartbeat
+from .action import ALL_CONTROL_TYPE, Heartbeat
 from .cmd_id import CMD_ID
 from .type import Error_Info
 
@@ -44,6 +44,23 @@ class Send_Pose(BaseModel):
     yaw: float
 
 
+class Send_MiR_AMR_STATUE(BaseModel):
+    cmd_id: str = CMD_ID.MIR_AMR_STATUS.value
+    status: str
+
+
+class Read_Status(BaseModel):
+    feedback_id: str
+    action_status: int
+    result_status: int
+    result_message: str
+
+
+class Send_Read_Status(BaseModel):
+    cmd_id: str = CMD_ID.READ_STATUS.value
+    read: Read_Status
+
+
 def send_error_info(error_info: Error_Info):
     return {'cmd_id': CMD_ID.ERROR_INFO.value, **error_info}
 
@@ -76,17 +93,25 @@ def send_feedback(feedback_json: str):
     return {'cmd_id': CMD_ID.FEEDBACK.value, 'feedback': feedback_json}
 
 
-def send_mission_result(msg: Dict[str, Dict[str, Any]]):
-    return {'cmd_id': CMD_ID.READ_STATUS.value, **msg}
-
-
-ALL_REQUEST_MSG_FORMATE = Union[Send_Pose]
+ALL_REQUEST_MSG_FORMATE = Union[Send_Pose, Send_MiR_AMR_STATUE, Send_Read_Status]
 
 ## response fn
 
 
 def base_response(data: Base_Response_Formate) -> Base_Response_Formate:
     return {**data}
+
+
+def transaction_res(action: ALL_CONTROL_TYPE, return_code: str):
+    payload = action['payload']
+    return base_response(
+        {
+            'cmd_id': payload['cmd_id'],
+            'amrId': payload['amrId'],
+            'id': payload['id'],
+            'return_code': return_code,
+        }
+    )
 
 
 def send_write_status_response(data: Write_Status_Response) -> Write_Status_Response:

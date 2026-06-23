@@ -30,6 +30,10 @@ class CMD_ID(Enum):
 
     ETX = 'ETX'
 
+    ## for Mir
+    PURE_MOVE_ACTION = 'PURE_MOVE_ACTION'
+    MIR_AMR_STATUS = 'MIR_AMR_STATUS'
+
 
 blacklist = [
     CMD_ID.HEARTBEAT.value,
@@ -42,4 +46,5 @@ blacklist = [
     CMD_ID.CHECK_POSITION.value,
     CMD_ID.HAS_CARGO.value,
     CMD_ID.HAS_MISSION.value,
+    CMD_ID.MIR_AMR_STATUS.value,
 ]

@@ -1,4 +1,4 @@
-from .action import ALL_CONTROL_TYPE, HEARTBEAT, Heartbeat
+from .action import ALL_CONTROL_TYPE, HEARTBEAT, Heartbeat, Pure_Move_Action
 from .cmd_id import CMD_ID, blacklist
 from .queues import (
     dynamicListener_queues,
@@ -20,5 +20,6 @@ __all__ = [
     'q2a_controlQName',
     'q2a_amrResponseQName',
     'ALL_CONTROL_TYPE',
+    'Pure_Move_Action',
     'CMD_ID',
 ]

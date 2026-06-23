@@ -24,8 +24,7 @@ from src.service.rabbitmq import (
 )
 from src.service.webService import headers
 
-from .heartbeat import Heartbeat
-from .status import Status
+from .components import Heartbeat, Mission, Status
 from .type import AMR_INFO, CONNECT_STATUS
 
 
@@ -113,6 +112,15 @@ class AMR:
             mir_service_connect_status=self.mir_service_connect_status,
             rabbit_service=self.rabbit_service,
             control_transaction_sub_=self.control_transaction_input_,
+        )
+
+        ## mission component
+        self.mission_c = Mission(
+            amr_info=self.amr_info,
+            receive_request_record=self.receive_request_record,
+            rabbit_service=self.rabbit_service,
+            control_transaction_sub_=self.control_transaction_input_,
+            amr_status_signal=self.status_c.amr_status_signal,
         )
 
     async def get_MiR_info(self):

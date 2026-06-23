@@ -13,7 +13,7 @@ from src.service.rabbitmq.queues import HEARTBEAT_EX
 from src.service.rabbitmq.transaction_wrapper import send_heartbeat_res
 from src.service.webService.httpx_set import headers
 
-from .type import AMR_INFO
+from ..type import AMR_INFO
 
 
 class Heartbeat:
