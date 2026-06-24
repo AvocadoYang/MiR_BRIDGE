@@ -9,10 +9,8 @@ class Payload_Base(TypedDict):
 
 
 ###
-# All response types to QAMS
+# All control type from QAMS
 ###
-
-
 class Heartbeat(Payload_Base):
     cmd_id: Literal['HB']
     heartbeat: int
@@ -26,14 +24,6 @@ class HEARTBEAT(TypedDict):
     flag: Literal['REQ', 'RES']
     amrId: str
     payload: Heartbeat
-
-
-ALL_RES_TYPE = Union[Heartbeat]
-
-
-###
-# All control type from QAMS
-###
 
 
 class Update_Pose(Payload_Base):

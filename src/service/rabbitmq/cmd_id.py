@@ -47,4 +47,5 @@ blacklist = [
     CMD_ID.HAS_CARGO.value,
     CMD_ID.HAS_MISSION.value,
     CMD_ID.MIR_AMR_STATUS.value,
+    CMD_ID.EMERGENCY_STOP.value,
 ]

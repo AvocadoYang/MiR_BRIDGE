@@ -7,6 +7,12 @@ class AMR_INFO(BaseModel):
     ip: str
 
 
+class Work_Status(BaseModel):
+    amrId: str
+    serialNum: str
+    status: int
+
+
 class Maps(BaseModel):
     guid: str
     session_id: str

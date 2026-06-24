@@ -205,14 +205,22 @@ class AMR:
             for queue_name in need_consume_queue:
                 if queue_name == heartbeatPingQName(self.amr_info.mac_address):
                     await self.rabbit_service.consume_queue(
-                        self.queues[queue_name], cb=self.__heartbeat_consumer
+                        amrId=self.amr_info.amrId,
+                        queue=self.queues[queue_name],
+                        cb=self.__heartbeat_consumer,
                     )
                 if queue_name == q2a_controlQName(self.amr_info.mac_address):
                     await self.rabbit_service.consume_queue(
-                        self.queues[queue_name], cb=self.__control_consumer
+                        amrId=self.amr_info.amrId,
+                        queue=self.queues[queue_name],
+                        cb=self.__control_consumer,
                     )
                 if queue_name == q2a_amrResponseQName(self.amr_info.mac_address):
-                    pass
+                    await self.rabbit_service.consume_queue(
+                        amrId=self.amr_info.amrId,
+                        queue=self.queues[queue_name],
+                        cb=self.__response_consumer,
+                    )
 
     def __heartbeat_consumer(self, msg: HEARTBEAT):
         self.receive_request_record[msg['payload']['cmd_id']] = msg['session']
@@ -221,6 +229,9 @@ class AMR:
     def __control_consumer(self, msg: ALL_CONTROL_TYPE):
         self.receive_request_record[msg['payload']['cmd_id']] = msg['session']
         self.control_transaction_input_.on_next(msg)
+
+    def __response_consumer(self, msg):
+        pass
 
     def _check_and_log_status(self, states: Tuple[bool, bool, bool]):
         """

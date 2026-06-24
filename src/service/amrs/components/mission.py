@@ -8,7 +8,11 @@ from reactivex import operators as ops
 
 from src.service.rabbitmq import ALL_CONTROL_TYPE, CMD_ID, Pure_Move_Action, Rabbit_client_async
 from src.service.rabbitmq.queues import CONTROL_EX, RES_EX
-from src.service.rabbitmq.transaction_wrapper import Read_Status, Send_Read_Status, transaction_res
+from src.service.rabbitmq.transaction_wrapper import (
+    Read_Status,
+    Send_Read_Status,
+    Write_Status_Response,
+)
 from src.service.webService.httpx_set import headers
 
 from ..type import AMR_INFO
@@ -62,14 +66,23 @@ class Mission:
                 )
                 res_json = res.json()
                 success = True if 'error_code' not in res_json else False
+                mi_mission_id = str(res_json['id']) if success else 'none'
+                return_code = '200' if success else '304'
+                mq_res = Write_Status_Response(
+                    id=rq_payload['id'],
+                    cmd_id=rq_payload['cmd_id'],
+                    amrId=rq_payload['amrId'],
+                    return_code=return_code,
+                    mi_mission_id=mi_mission_id,
+                    lastSendGoalId=rq_payload['feedback_id'],
+                    missionType='move',
+                )
                 await self.rb.res_publish(
                     exchange_name=RES_EX,
                     routing_key=f'qams.{self.amr_info.mac_address}.res.pure_move_action',
                     last_receive_req=self.receive_request_record,
                     mac_address=self.amr_info.mac_address,
-                    message=transaction_res(
-                        action=action, return_code=('200' if success else '304')
-                    ),
+                    message=mq_res,
                 )
                 if success:
                     com = await self.wait_mission_complete()

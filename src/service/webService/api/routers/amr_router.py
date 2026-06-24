@@ -1,9 +1,13 @@
+import httpx
 from fastapi import APIRouter, Request
+from pydantic import BaseModel
 
+from src.dtypes import REGISTER_TABLE
 from src.logger import logger
 
 from ...handler import ConflictError, CustomSuccessRoute, NotFoundError
-from ...type import AMR_INFO, AMRMapResponse
+from ...httpx_set import headers
+from ...type import AMR_INFO, AMRMapResponse, Work_Status
 
 router = APIRouter(prefix='/amr', route_class=CustomSuccessRoute)
 
@@ -50,3 +54,28 @@ async def delete_amr(request: Request, update_info: AMR_INFO):
     pretty_json = update_info.model_dump_json()
     logger.bind(state='[DELETE]').info(f'delete new amr: {pretty_json}')
     return update_info
+
+
+class State_Payload(BaseModel):
+    state_id: int
+
+
+@router.post('/switch-work-status')
+async def switch_work_status(request: Request, work_status: Work_Status):
+    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+    if work_status.serialNum not in register_table:
+        raise NotFoundError(
+            f'can not found mac address {work_status.serialNum} in register table',
+        )
+    try:
+        amr_info = register_table[work_status.serialNum]
+        url = f'http://{amr_info["ip"]}/api/v2.0.0/status'
+        async with httpx.AsyncClient() as client:
+            payload = State_Payload(state_id=work_status.status)
+            await client.put(url=url, json=payload.model_dump(), headers=headers, timeout=3)
+    except (httpx.HTTPStatusError, Exception) as e:
+        print(e)
+    logger.bind(state='[PUT]').info(
+        f'switch work state: {"work stop" if work_status.status == 4 else "working"}'
+    )
+    return []

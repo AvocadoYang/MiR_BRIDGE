@@ -9,7 +9,11 @@ from reactivex.subject import BehaviorSubject
 from src.logger import logger
 from src.service.rabbitmq import ALL_CONTROL_TYPE, CMD_ID, Rabbit_client_async
 from src.service.rabbitmq.queues import IO_EX, RES_EX
-from src.service.rabbitmq.transaction_wrapper import Send_MiR_AMR_STATUE, Send_Pose, transaction_res
+from src.service.rabbitmq.transaction_wrapper import (
+    Send_MiR_AMR_STATUE,
+    Send_Pose,
+    base_transaction_res,
+)
 from src.service.rabbitmq.type import PUBLISH_OPTIONS
 
 from ..type import (
@@ -51,7 +55,18 @@ class Status:
                     routing_key=f'qams.{self.amr_info.mac_address}.res.updateMap',
                     last_receive_req=self.receive_request_record,
                     mac_address=self.amr_info.mac_address,
-                    message=transaction_res(action=action, return_code='200'),
+                    message=base_transaction_res(action=action, return_code='200'),
+                )
+            )
+        if payload['cmd_id'] == CMD_ID.FORCE_RESET.value:
+            asyncio.create_task(self.request_error_reset())
+            asyncio.create_task(
+                self.rb.res_publish(
+                    exchange_name=RES_EX,
+                    routing_key=f'qams.{self.amr_info.mac_address}.res.forceReset',
+                    last_receive_req=self.receive_request_record,
+                    mac_address=self.amr_info.mac_address,
+                    message=base_transaction_res(action=action, return_code='200'),
                 )
             )
 
@@ -177,3 +192,17 @@ class Status:
 
     def sanitize_degree(self, deg: float):
         return ((deg % 360) + 360) % 360
+
+    async def request_error_reset(self):
+        if self.ws is None:
+            return
+
+        msg = {
+            'op': 'call_service',
+            'id': 'call_service:/mirsupervisor/requestErrorReset:20',
+            'service': '/mirsupervisor/requestErrorReset',
+            'type': 'std_srv/Empty',
+            'args': {},
+        }
+
+        await self.ws.send(json.dumps(msg))

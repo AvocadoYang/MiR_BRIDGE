@@ -149,6 +149,7 @@ class Rabbit_client_async(Connect_impl):
 
     async def consume_queue(
         self,
+        amrId: str,
         queue: AbstractQueue,
         *,
         cb: Callable[[T], None],
@@ -160,7 +161,6 @@ class Rabbit_client_async(Connect_impl):
                     data = json.loads(msg.body)
                     payload = data['payload']
                     cmd_id = payload['cmd_id']
-                    amrId = payload['amrId']
                     if data['flag'] == 'RES':
                         if cmd_id not in blacklist:
                             logger.bind(title=amrId).log(
@@ -194,17 +194,17 @@ class Rabbit_client_async(Connect_impl):
     ):
         try:
             flag = 'RES'
-            if message['cmd_id'] not in last_receive_req:
+            if message.cmd_id not in last_receive_req:
                 raise Exception("can't get the corresponding request")
-            req_session = last_receive_req[message['cmd_id']]
+            req_session = last_receive_req[message.cmd_id]
             r_msg = {
-                'id': message['id'],
+                'id': message.id,
                 'seder': 'MiR_Bridge',
                 'serialNum': mac_address,
                 'session': req_session,
                 'flag': flag,
                 'timestamp': format_date(),
-                'payload': message,
+                'payload': message.model_dump(),
             }
             b_msg = json.dumps(r_msg, ensure_ascii=False).encode('utf-8')
             msg = Message(
@@ -219,14 +219,14 @@ class Rabbit_client_async(Connect_impl):
                 raise IOError(f'exchange {exchange_name} is None')
             exchange = self._exchanges[exchange_name]
             await exchange.publish(message=msg, routing_key=routing_key)
-            if message['cmd_id'] == 'HB':
-                heartbeat_logger.bind(title=message['amrId'], state='heartbeat').info(
-                    f'Response heartbeat to QAMS {message}'
+            if message.cmd_id == 'HB':
+                heartbeat_logger.bind(title=message.amrId, state='heartbeat').info(
+                    f'Response heartbeat to QAMS {message.model_dump_json()}'
                 )
                 return True
-            elif message['cmd_id'] not in blacklist:
-                logger.bind(title=message['amrId']).log(
-                    'MQ', f'Send [res] message ({message["cmd_id"]}) - {json.dumps(message)}'
+            elif message.cmd_id not in blacklist:
+                logger.bind(title=message.amrId).log(
+                    'MQ', f'Send [res] message ({message.cmd_id}) - {message.model_dump_json()}'
                 )
         except aiormq.exceptions.PublishError as e:
             print(f'send message failed: {e}')

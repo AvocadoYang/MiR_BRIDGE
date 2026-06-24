@@ -10,7 +10,7 @@ from reactivex.subject import BehaviorSubject
 from src.logger import heartbeat_logger, logger
 from src.service.rabbitmq import HEARTBEAT, Rabbit_client_async
 from src.service.rabbitmq.queues import HEARTBEAT_EX
-from src.service.rabbitmq.transaction_wrapper import send_heartbeat_res
+from src.service.rabbitmq.transaction_wrapper import Heartbeat_Response
 from src.service.webService.httpx_set import headers
 
 from ..type import AMR_INFO
@@ -60,14 +60,18 @@ class Heartbeat:
         except (httpx.HTTPStatusError, Exception) as e:
             print(e)
         payload = action['payload']
+        heartbeat_res = Heartbeat_Response(
+            id=payload['id'],
+            cmd_id=payload['cmd_id'],
+            amrId=payload['amrId'],
+            heartbeat=res_heartbeat,
+        )
         await self.rb.res_publish(
             exchange_name=HEARTBEAT_EX,
             routing_key=f'qams.heartbeat.pong.{self.amr_info.mac_address}',
             last_receive_req=self.receive_request_record,
             mac_address=self.amr_info.mac_address,
-            message=send_heartbeat_res(
-                heartbeat=res_heartbeat, id=action['id'], amrId=payload['amrId']
-            ),
+            message=heartbeat_res,
         )
 
     def __qams_heartbeat_watch_dog(self, action: bool):
