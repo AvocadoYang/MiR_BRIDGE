@@ -133,6 +133,28 @@ async def update_position():
     pass
 
 
+class MapUsingFormat(BaseModel):
+    map_id: str
+
+
+@router.put('/switch-map')
+async def change_map_use(request: Request, payload: MapUsingFormat):
+    try:
+        register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+        for mac_address, info in register_table.items():
+            amr = info['amr']
+            if amr is not None:
+                if not amr.amr_info.connect_w_amr:
+                    continue
+            url = f'http://{info["ip"]}/api/v2.0.0/status'
+            async with httpx.AsyncClient() as client:
+                res = await client.put(url=url, headers=headers, json=payload.model_dump())
+        logger.bind(state='[PUT]').info(f'switch map to {payload.map_id}')
+        return payload.map_id
+    except (httpx.HTTPStatusError, Exception) as e:
+        print(e)
+
+
 @router.get('/sync_map', response_model=List[Maps])
 async def async_map(request: Request):
     res: List[Maps] = []
@@ -158,6 +180,12 @@ async def async_map(request: Request):
                         get_map_info_url = f'http://{item["ip"]}/api/v2.0.0/maps/{map.guid}'
                         info_res = await client.get(url=get_map_info_url, headers=headers)
                         map_detail = info_res.json()
+                        print(
+                            map_detail['name'],
+                            map_detail['origin_x'],
+                            map_detail['origin_y'],
+                            '!!!!!!!!!!!!!!!!!',
+                        )
                         valid_map_detail = MapDetail(**map_detail)
                         get_session_info_url = (
                             f'http://{item["ip"]}/api/v2.0.0/sessions/{valid_map_detail.session_id}'

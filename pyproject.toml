@@ -28,3 +28,8 @@ select = ["E", "F", "I"]
 
 [tool.ruff.format]
 quote-style = "single"
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.21.0",
+]

@@ -252,10 +252,10 @@ class AMR:
     def connect_behavior(self, connect_list: Tuple[bool, bool, bool]):
         qams_connect, rabbitmq_connect, mir_serive_connect = connect_list
 
-        self.amr_info.is_connect = True if mir_serive_connect else False
+        self.amr_info.connect_w_amr = True if mir_serive_connect else False
 
         if qams_connect and rabbitmq_connect and mir_serive_connect:
-            self.amr_info.online = True
+            self.amr_info.connect_w_qams = True
             self.heartbeat_c.start_heartbeat_watchdog.on_next(True)
             return
 
@@ -266,7 +266,7 @@ class AMR:
         if not qams_connect and rabbitmq_connect and mir_serive_connect:
             asyncio.create_task(self.connect_with_qams())
         else:
-            self.amr_info.online = False
+            self.amr_info.connect_w_qams = False
 
     async def set_amr_resource(self):
 

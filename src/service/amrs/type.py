@@ -150,6 +150,6 @@ class AMR_INFO(BaseModel):
     mac_address: str = ''
     ip: str = ''
     is_enable: bool = False
-    online: bool = False
-    is_connect: bool = False
+    connect_w_qams: bool = False
+    connect_w_amr: bool = False
     session: str = ''
