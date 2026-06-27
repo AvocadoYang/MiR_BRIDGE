@@ -69,7 +69,9 @@ class AMR:
             'mir_service_is_connect': False,
         }
         self.qams_connect_status: BehaviorSubject[bool] = BehaviorSubject(False)
-        self.rb_connect_status: BehaviorSubject[bool] = BehaviorSubject(False)
+        self.rb_connect_status: BehaviorSubject[bool] = BehaviorSubject(
+            False if self.rabbit_service.channel is None else True
+        )
         self.mir_service_connect_status: BehaviorSubject[bool] = BehaviorSubject(False)
 
         combine_latest(

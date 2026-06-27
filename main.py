@@ -11,6 +11,7 @@ import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel, RootModel, ValidationError
 
+from src.actions import ALL_Web_Action_Type
 from src.configs import config
 from src.dtypes import REGISTER_TABLE
 from src.helper.helper import format_date
@@ -24,6 +25,8 @@ class MiR_BRIDGE:
         self.show_sync_register_table_error_log = True
         self.rabbitmq: Rabbit_client_async = Rabbit_client_async()
         self.web_server: WebServer = WebServer(self.service_launch, self.register_table)
+
+        self.web_server.output.subscribe(self.web_server_action)
 
     @asynccontextmanager
     async def service_launch(self, app: FastAPI):
@@ -106,6 +109,26 @@ class MiR_BRIDGE:
                 logger.error(f'sync register table failed: {str(e)}')
                 self.show_sync_register_table_error_log = False
         return False
+
+    def web_server_action(self, action: ALL_Web_Action_Type):
+        match action.type:
+            case 'ADD_AMR':
+                amr = AMR(
+                    mac_address=action.mac_address,
+                    ip=action.ip,
+                    amrId=action.amrId,
+                    is_enable=action.is_enable,
+                    rabbit_service=self.rabbitmq,
+                )
+                self.register_table[action.mac_address] = {
+                    'amrId': action.amrId,
+                    'ip': action.ip,
+                    'serialNum': action.mac_address,
+                    'is_enable': action.is_enable,
+                    'amr': amr,
+                }
+                asyncio.create_task(amr.get_MiR_info())
+                return
 
 
 if __name__ == '__main__':

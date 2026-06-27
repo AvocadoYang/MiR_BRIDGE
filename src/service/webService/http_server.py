@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from reactivex import Subject
 
+from src.actions import ALL_Web_Action_Type
 from src.logger import logger
 
 from .api import api_router
@@ -14,6 +16,8 @@ class WebServer:
     def __init__(self, register, register_table):
         from src.dtypes import REGISTER_TABLE
 
+        self.output = Subject[ALL_Web_Action_Type]()
+
         self.register_table: dict[str, REGISTER_TABLE] = register_table
         self._app = FastAPI(lifespan=register)
         self.set_error_handler()
@@ -21,6 +25,7 @@ class WebServer:
         @self._app.middleware('http')
         async def add_state_middleware(request: Request, call_next):
             request.state.register_table = self.register_table
+            request.state.output = self.output
             response = await call_next(request)
             return response
 

@@ -1,10 +1,11 @@
 from pydantic import BaseModel, RootModel
 
 
-class AMR_INFO(BaseModel):
+class REGISTER_AMR_INFO(BaseModel):
     amrId: str
     serialNum: str
     ip: str
+    is_enable: bool
 
 
 class Work_Status(BaseModel):
@@ -26,7 +27,7 @@ class Maps(BaseModel):
 
 
 class REGISTER_TABLE_RESPONSE(BaseModel):
-    register_table: dict[str, AMR_INFO]
+    register_table: dict[str, REGISTER_AMR_INFO]
 
 
 class AMRItem(BaseModel):
