@@ -5,6 +5,7 @@ import httpx
 from pydantic import BaseModel
 from reactivex import Subject
 from reactivex import operators as ops
+from reactivex.abc import DisposableBase
 
 from src.service.rabbitmq import ALL_CONTROL_TYPE, CMD_ID, Pure_Move_Action, Rabbit_client_async
 from src.service.rabbitmq.queues import CONTROL_EX, RES_EX
@@ -43,7 +44,9 @@ class Mission:
         self.receive_request_record = receive_request_record
         self.amr_status_signal = amr_status_signal
 
-        control_transaction_sub_.subscribe(self.action_processor)
+        self.subs: List[DisposableBase] = [
+            control_transaction_sub_.subscribe(self.action_processor)
+        ]
 
     def action_processor(self, action: ALL_CONTROL_TYPE):
         payload = action['payload']
@@ -118,3 +121,7 @@ class Mission:
             return await future
         finally:
             subscription.dispose()
+
+    async def destroy(self):
+        for sub in self.subs:
+            sub.dispose()

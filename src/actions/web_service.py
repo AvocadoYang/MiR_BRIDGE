@@ -23,8 +23,6 @@ class DELETE_AMR_ACTION(BaseModel):
     type: Literal['DELETE_AMR'] = 'DELETE_AMR'
     amrId: str
     mac_address: str
-    ip: str
-    is_enable: bool
 
 
 class ALL_WEB_ACTION:

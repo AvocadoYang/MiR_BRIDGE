@@ -6,6 +6,7 @@ import httpx
 from aio_pika.abc import AbstractQueue
 from pydantic import BaseModel, RootModel, ValidationError
 from reactivex import Subject, combine_latest
+from reactivex.abc import DisposableBase
 from reactivex.operators import distinct_until_changed, do_action
 from reactivex.subject import BehaviorSubject
 
@@ -37,6 +38,7 @@ class AMR:
         is_enable: bool,
         rabbit_service: Rabbit_client_async,
     ):
+        self.start_destroy_process = False
         self.map_resource_is_init: bool = False
 
         self.amr_info: AMR_INFO = AMR_INFO(
@@ -74,20 +76,6 @@ class AMR:
         )
         self.mir_service_connect_status: BehaviorSubject[bool] = BehaviorSubject(False)
 
-        combine_latest(
-            self.qams_connect_status, self.rb_connect_status, self.mir_service_connect_status
-        ).pipe(
-            distinct_until_changed(
-                lambda connect_list: connect_list,
-                lambda pre_list, curr_list: (
-                    (pre_list[0] == curr_list[0])
-                    and (pre_list[1] == curr_list[1])
-                    and (pre_list[2] == curr_list[2])
-                ),
-            ),
-            do_action(lambda connect_list: self._check_and_log_status(connect_list)),
-        ).subscribe(on_next=lambda connect_list: self.connect_behavior(connect_list))
-
         # listen rabbitmq server connect status
         rabbit_service.rabbit_is_connect.subscribe(
             on_next=lambda is_connect: self.rb_connect_status.on_next(is_connect)
@@ -101,10 +89,6 @@ class AMR:
             receive_request_record=self.receive_request_record,
             rabbit_service=self.rabbit_service,
             heartbeat_sub=self.heartbeat_input_,
-        )
-
-        self.heartbeat_c.qams_timeout_signal.subscribe(
-            lambda action: self.qams_connect_status.on_next(False)
         )
 
         ## status component
@@ -125,6 +109,27 @@ class AMR:
             amr_status_signal=self.status_c.amr_status_signal,
         )
 
+        self.subs: List[DisposableBase] = [
+            combine_latest(
+                self.qams_connect_status, self.rb_connect_status, self.mir_service_connect_status
+            )
+            .pipe(
+                distinct_until_changed(
+                    lambda connect_list: connect_list,
+                    lambda pre_list, curr_list: (
+                        (pre_list[0] == curr_list[0])
+                        and (pre_list[1] == curr_list[1])
+                        and (pre_list[2] == curr_list[2])
+                    ),
+                ),
+                do_action(lambda connect_list: self._check_and_log_status(connect_list)),
+            )
+            .subscribe(on_next=lambda connect_list: self.connect_behavior(connect_list)),
+            self.heartbeat_c.qams_timeout_signal.subscribe(
+                lambda action: self.qams_connect_status.on_next(False)
+            ),
+        ]
+
     async def get_MiR_info(self):
         class InfoSchema(BaseModel):
             user_id: str
@@ -135,7 +140,7 @@ class AMR:
             allowed_methods: Union[str, None]
 
         url = f'http://{self.amr_info.ip}/api/v2.0.0/users/auth'
-        while not self.got_mir_token:
+        while not self.got_mir_token or not self.start_destroy_process:
             try:
                 async with httpx.AsyncClient() as client:
                     response = await client.post(url=url, headers=headers, timeout=2)
@@ -187,11 +192,14 @@ class AMR:
             )
 
         self.qams_connect_status.on_next(False)
+        if self.start_destroy_process:
+            return
         await asyncio.sleep(3)
         asyncio.create_task(self.connect_with_qams())
 
     async def init_queues_and_bind_with_exchange(self):
         if not len(self.queues):
+            logger.bind(title=self.amr_info.amrId).info('init queue and bind with exchange')
             queue_pairs = get_all_queue_exchange_relationship(self.amr_info.mac_address)
             for pair in queue_pairs:
                 queue = await self.rabbit_service.create_queue_and_bind(
@@ -437,4 +445,16 @@ class AMR:
             logger.bind(title=self.amr_info.amrId).info('resource sync successful')
 
         except (httpx.HTTPStatusError, Exception) as e:
-            print(e, '!!!!!!!!!!!!!!!!!!!!')
+            logger.bind(title=self.amr_info.amrId).error(e)
+
+    async def destroy(self):
+        self.start_destroy_process = True
+        if self.rabbit_service.channel:
+            queue_pairs = get_all_queue_exchange_relationship(self.amr_info.mac_address)
+            for pair in queue_pairs:
+                await self.rabbit_service.channel.queue_delete(pair['q_name'])
+        for sub in self.subs:
+            sub.dispose()
+        await self.heartbeat_c.destroy()
+        await self.status_c.destroy()
+        await self.mission_c.destroy()

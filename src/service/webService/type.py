@@ -8,6 +8,11 @@ class REGISTER_AMR_INFO(BaseModel):
     is_enable: bool
 
 
+class DELETE_AMR_INFO(BaseModel):
+    serialNum: str
+    amrId: str
+
+
 class Work_Status(BaseModel):
     amrId: str
     serialNum: str

@@ -1,8 +1,10 @@
 import asyncio
+from typing import List
 
 import httpx
 import reactivex
 from reactivex import Subject, timer
+from reactivex.abc import DisposableBase
 from reactivex.operators import do_action, switch_map
 from reactivex.scheduler.eventloop import AsyncIOScheduler
 from reactivex.subject import BehaviorSubject
@@ -34,10 +36,12 @@ class Heartbeat:
         self.qams_timeout_signal: Subject[bool] = Subject()
         self.__heartbeat_timer_update: BehaviorSubject[bool] = BehaviorSubject(True)
 
-        heartbeat_sub.subscribe(self.__heartbeat_with_qams)
-        self.start_heartbeat_watchdog.pipe(
-            switch_map(lambda action: self.__qams_heartbeat_watch_dog(action))
-        ).subscribe()
+        self.subs: List[DisposableBase] = [
+            heartbeat_sub.subscribe(self.__heartbeat_with_qams),
+            self.start_heartbeat_watchdog.pipe(
+                switch_map(lambda action: self.__qams_heartbeat_watch_dog(action))
+            ).subscribe(),
+        ]
 
     def __heartbeat_with_qams(self, action: HEARTBEAT):
         payload = action['payload']
@@ -88,3 +92,7 @@ class Heartbeat:
     def qams_timeout_process(self):
         logger.warning('(QAMS) heartbeat timeout, disconnect')
         self.qams_timeout_signal.on_next(True)
+
+    async def destroy(self):
+        for sub in self.subs:
+            sub.dispose()

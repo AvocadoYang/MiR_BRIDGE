@@ -1,9 +1,11 @@
 import asyncio
 import json
 import math
+from typing import List
 
 import websockets
 from reactivex import Subject
+from reactivex.abc import DisposableBase
 from reactivex.subject import BehaviorSubject
 
 from src.logger import logger
@@ -44,7 +46,9 @@ class Status:
 
         self.amr_status_signal: Subject[str] = Subject()
 
-        control_transaction_sub_.subscribe(self.action_processor)
+        self.subs: List[DisposableBase] = [
+            control_transaction_sub_.subscribe(self.action_processor)
+        ]
 
     def action_processor(self, action: ALL_CONTROL_TYPE):
         payload = action['payload']
@@ -206,3 +210,7 @@ class Status:
         }
 
         await self.ws.send(json.dumps(msg))
+
+    async def destroy(self):
+        for sub in self.subs:
+            sub.dispose()

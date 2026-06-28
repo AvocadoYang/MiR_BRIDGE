@@ -9,7 +9,7 @@ from src.logger import logger
 
 from ...handler import ConflictError, CustomSuccessRoute, NotFoundError
 from ...httpx_set import headers
-from ...type import REGISTER_AMR_INFO, AMRMapResponse, Work_Status
+from ...type import DELETE_AMR_INFO, REGISTER_AMR_INFO, AMRMapResponse, Work_Status
 
 router = APIRouter(prefix='/amr', route_class=CustomSuccessRoute)
 
@@ -56,16 +56,21 @@ async def update_amr(request: Request, update_info: REGISTER_AMR_INFO):
     return update_info
 
 
-@router.delete('/delete_mir_amr', response_model=REGISTER_AMR_INFO)
-async def delete_amr(request: Request, update_info: REGISTER_AMR_INFO):
-    if update_info.serialNum not in request.state.register_table:
+@router.delete('/delete_mir_amr', response_model=DELETE_AMR_INFO)
+async def delete_amr(request: Request, delete_info: DELETE_AMR_INFO):
+    output: Subject[ALL_Web_Action_Type] = request.state.output
+    if delete_info.serialNum not in request.state.register_table:
         raise NotFoundError(
-            f'can not found mac address {update_info.serialNum} in register table',
+            f'can not found mac address {delete_info.serialNum} in register table',
         )
 
-    pretty_json = update_info.model_dump_json()
-    logger.bind(state='[DELETE]').info(f'delete new amr: {pretty_json}')
-    return update_info
+    delete_payload = All_Web_Action.DELETE_AMR_ACTION(
+        mac_address=delete_info.serialNum, amrId=delete_info.amrId
+    )
+    output.on_next(delete_payload)
+    pretty_json = delete_info.model_dump_json()
+    logger.bind(state='[DELETE]').info(f'delete amr: {pretty_json}')
+    return delete_info
 
 
 class State_Payload(BaseModel):

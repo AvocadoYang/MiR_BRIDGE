@@ -129,6 +129,12 @@ class MiR_BRIDGE:
                 }
                 asyncio.create_task(amr.get_MiR_info())
                 return
+            case 'DELETE_AMR':
+                amr = self.register_table[action.mac_address]['amr']
+                if amr is not None:
+                    asyncio.create_task(amr.destroy())
+                    del self.register_table[action.mac_address]
+                    logger.bind(title=action.amrId).info('destroy amr instant in system')
 
 
 if __name__ == '__main__':
@@ -151,6 +157,7 @@ if __name__ == '__main__':
                 time.sleep(3)
     except KeyboardInterrupt:
         logger.info('ctrl + c to close service')
+        print(asyncio.get_running_loop(), '@@@@@@@')
         sys.exit(1)
     except Exception:
         pass
