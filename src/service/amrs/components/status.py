@@ -12,19 +12,14 @@ from src.logger import logger
 from src.service.rabbitmq import ALL_CONTROL_TYPE, CMD_ID, Rabbit_client_async
 from src.service.rabbitmq.queues import IO_EX, RES_EX
 from src.service.rabbitmq.transaction_wrapper import (
+    Send_IO_INFO,
     Send_MiR_AMR_STATUE,
     Send_Pose,
     base_transaction_res,
 )
 from src.service.rabbitmq.type import PUBLISH_OPTIONS
 
-from ..type import (
-    AMR_INFO,
-    Pose,
-    Quaternion,
-    RobotStatus,
-    TFMessage,
-)
+from ..type import AMR_INFO, BatteryInfo, IOInfo, Pose, Quaternion, RobotStatus, TFMessage
 
 
 class Status:
@@ -179,6 +174,23 @@ class Status:
                     routing_key=f'amr.io.{self.amr_info.amrId}.mir_amr_status',
                     amr_info=self.amr_info,
                     message=status_msg,
+                    options=options,
+                )
+
+                battery_info = BatteryInfo(
+                    battery=status_msg_data['battery_percentage'],
+                    voltage=status_msg_data['battery_voltage'],
+                    write_battery_info_time=status_msg_data['battery_time_remaining'],
+                )
+
+                io = IOInfo(battery_info=battery_info)
+
+                io_info = Send_IO_INFO(io=io.model_dump_json())
+                await self.rb.req_publish(
+                    exchange_name=IO_EX,
+                    routing_key=f'amr.io.{self.amr_info.amrId}.ioInfo',
+                    amr_info=self.amr_info,
+                    message=io_info,
                     options=options,
                 )
 

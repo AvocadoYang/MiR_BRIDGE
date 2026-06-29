@@ -39,7 +39,7 @@ class Heartbeat:
         self.subs: List[DisposableBase] = [
             heartbeat_sub.subscribe(self.__heartbeat_with_qams),
             self.start_heartbeat_watchdog.pipe(
-                switch_map(lambda action: self.__qams_heartbeat_watch_dog(action))
+                switch_map(lambda action: self.__qams_heartbeat_watch_dog(action)),
             ).subscribe(),
         ]
 
@@ -92,6 +92,7 @@ class Heartbeat:
     def qams_timeout_process(self):
         logger.warning('(QAMS) heartbeat timeout, disconnect')
         self.qams_timeout_signal.on_next(True)
+        self.start_heartbeat_watchdog.on_next(False)
 
     async def destroy(self):
         for sub in self.subs:

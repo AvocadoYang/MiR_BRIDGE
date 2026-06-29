@@ -35,6 +35,11 @@ class Send_Read_Status(BaseModel):
     read: Read_Status
 
 
+class Send_IO_INFO(BaseModel):
+    cmd_id: str = CMD_ID.IO_INFO.value
+    io: str
+
+
 def send_error_info(error_info: Error_Info):
     return {'cmd_id': CMD_ID.ERROR_INFO.value, **error_info}
 
@@ -67,7 +72,7 @@ def send_feedback(feedback_json: str):
     return {'cmd_id': CMD_ID.FEEDBACK.value, 'feedback': feedback_json}
 
 
-ALL_REQUEST_MSG_FORMATE = Union[Send_Pose, Send_MiR_AMR_STATUE, Send_Read_Status]
+ALL_REQUEST_MSG_FORMATE = Union[Send_Pose, Send_MiR_AMR_STATUE, Send_Read_Status, Send_IO_INFO]
 
 ## response fn
 

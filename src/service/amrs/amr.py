@@ -51,6 +51,7 @@ class AMR:
         self.user_uuid: str = ''
 
         self.show_get_mir_token_error_log = True  ## log switch of mir token getting function
+        self.show_qams_connect_error_log = True
         self.got_mir_token = False  ## loop controler of mir token gettin function
 
         ## own queues
@@ -180,16 +181,21 @@ class AMR:
                     if not self.map_resource_is_init:
                         await self.set_amr_resource()
                     self.qams_connect_status.on_next(True)
+                    self.show_qams_connect_error_log = True
                     return
 
         except httpx.HTTPError as e:
-            logger.bind(title=self.amr_info.amrId).error(
-                f'QAMS request error: {e},  retry afater 3s...'
-            )
+            if self.show_qams_connect_error_log:
+                logger.bind(title=self.amr_info.amrId).error(
+                    f'QAMS request error: {e},  retry afater 3s...'
+                )
+                self.show_qams_connect_error_log = False
         except ValidationError as e:
-            logger.bind(title=self.amr_info.amrId).error(
-                f'QAMS validate error: {e},  retry afater 3s...'
-            )
+            if self.show_qams_connect_error_log:
+                logger.bind(title=self.amr_info.amrId).error(
+                    f'QAMS validate error: {e},  retry afater 3s...'
+                )
+                self.show_qams_connect_error_log = False
 
         self.qams_connect_status.on_next(False)
         if self.start_destroy_process:
