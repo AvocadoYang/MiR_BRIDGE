@@ -1,3 +1,4 @@
+import json
 from typing import List, Union
 
 import httpx
@@ -158,7 +159,7 @@ async def change_map_use(request: Request, payload: MapUsingFormat):
 @router.get('/sync_map', response_model=List[Maps])
 async def async_map(request: Request):
     res: List[Maps] = []
-    register_table = request.state.register_table
+    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
 
     class Info(BaseModel):
         url: str
@@ -175,17 +176,16 @@ async def async_map(request: Request):
                 response = await client.get(url=url, headers=headers, timeout=2)
                 maps = response.json()
                 valid_maps = Map_Info(info=maps)
+                print_map_info = {}
                 if len(valid_maps.info):
                     for map in valid_maps.info:
                         get_map_info_url = f'http://{item["ip"]}/api/v2.0.0/maps/{map.guid}'
                         info_res = await client.get(url=get_map_info_url, headers=headers)
                         map_detail = info_res.json()
-                        print(
-                            map_detail['name'],
-                            map_detail['origin_x'],
-                            map_detail['origin_y'],
-                            '!!!!!!!!!!!!!!!!!',
-                        )
+                        print_map_info[map_detail['name']] = {
+                            'origin_x': map_detail['origin_x'],
+                            'origin_y': map_detail['origin_y'],
+                        }
                         valid_map_detail = MapDetail(**map_detail)
                         get_session_info_url = (
                             f'http://{item["ip"]}/api/v2.0.0/sessions/{valid_map_detail.session_id}'
@@ -205,7 +205,9 @@ async def async_map(request: Request):
                             origin_theta=valid_map_detail.origin_theta,
                         )
                         res.append(r)
-            logger.bind(state='[GET]').info('return sync maps info')
+            logger.bind(state='[GET]').info(
+                f'{item["amrId"]} return sync maps info with {json.dumps(print_map_info, indent=2)}'
+            )
         except PydanticValidationError as e:
             raise ValidationError(
                 message=f'msg: {e.errors()[0]["msg"]}, input: {e.errors()[0]["input"]}'

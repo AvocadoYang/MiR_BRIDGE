@@ -61,8 +61,8 @@ class Heartbeat:
                 url = f'http://{self.amr_info.ip}/api/v2.0.0/users/me'
                 await client.get(url=url, headers=headers, timeout=2)
                 self.__heartbeat_timer_update.on_next(True)
-        except (httpx.HTTPStatusError, Exception) as e:
-            print(e)
+        except (httpx.HTTPStatusError, Exception):
+            pass
         payload = action['payload']
         heartbeat_res = Heartbeat_Response(
             id=payload['id'],
