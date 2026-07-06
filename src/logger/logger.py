@@ -1,5 +1,5 @@
-import os
 import sys
+from pathlib import Path
 from typing import Tuple
 
 from loguru import logger
@@ -14,10 +14,15 @@ def color(text: str, rgb: Tuple[int, int, int]):
     return f'\033[38;2;{r};{g};{b}m{text}\033[0m'
 
 
-path_with_tilde = '~/kenmec/_logs/kenmec_bridge'
-absolute_path = os.path.abspath(os.path.expanduser(path_with_tilde))
-log_file_path = os.path.join(absolute_path, '{time:YYYY-MM-DD}.log')
-heartbeat_file_path = os.path.join(absolute_path, 'heartbeat/heartbeat_{time:YYYY-MM-DD}.log')
+absolute_path = Path.home() / 'kenmec' / '_logs' / 'kenmec_bridge'
+
+
+absolute_path.mkdir(parents=True, exist_ok=True)
+(absolute_path / 'heartbeat').mkdir(parents=True, exist_ok=True)
+
+
+log_file_path = str(absolute_path / '{time:YYYY-MM-DD}.log')
+heartbeat_file_path = str(absolute_path / 'heartbeat' / 'heartbeat_{time:YYYY-MM-DD}.log')
 
 logger.remove()
 
