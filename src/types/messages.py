@@ -1,6 +1,6 @@
 from typing import Literal, TypedDict, Union
 
-from src.dtypes import Mission_Payload
+from .mission import Mission_Payload
 
 
 class Payload_Base(TypedDict):

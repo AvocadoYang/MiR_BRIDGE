@@ -11,7 +11,6 @@ from reactivex.operators import distinct_until_changed, do_action
 from reactivex.subject import BehaviorSubject
 
 from src.configs import config
-from src.dtypes import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
 from src.logger import logger
 from src.service.rabbitmq import (
     ALL_CONTROL_TYPE,
@@ -24,9 +23,10 @@ from src.service.rabbitmq import (
     q2a_controlQName,
 )
 from src.service.webService import headers
+from src.types.amr import AMR_INFO, CONNECT_STATUS
+from src.types.map import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
 
 from .components import Heartbeat, Mission, Status
-from .type import AMR_INFO, CONNECT_STATUS
 
 
 class AMR:

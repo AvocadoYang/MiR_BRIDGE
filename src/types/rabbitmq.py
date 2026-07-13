@@ -16,12 +16,6 @@ class RABBIT_CREATE_QUEUE_OPTIONS(TypedDict, total=False):
     arguments: Any
 
 
-class Pose(TypedDict):
-    x: float
-    y: float
-    yaw: float
-
-
 class Error_Info(TypedDict):
     warning_msg: List[str]
     warning_id: List[str]
@@ -33,3 +27,16 @@ class PUBLISH_OPTIONS:
     retries: int = 3
     retry_delay: int = 1500
     persistent: bool = False
+
+
+class PublishOptions(TypedDict, total=False):
+    expiration: str
+    retries: int
+    retryDelay: str
+    persistent: bool
+
+
+class Queue_Ex_Pairs(TypedDict):
+    q_name: str
+    bind_ex: str
+    key: str

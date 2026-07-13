@@ -13,10 +13,10 @@ from pydantic import BaseModel, RootModel, ValidationError
 
 from src.actions import ALL_Web_Action_Type
 from src.configs import config
-from src.dtypes import REGISTER_TABLE
 from src.helper.helper import format_date
 from src.logger import logger
 from src.service import AMR, Rabbit_client_async, WebServer
+from src.types.amr import REGISTER_TABLE
 
 
 class MiR_BRIDGE:

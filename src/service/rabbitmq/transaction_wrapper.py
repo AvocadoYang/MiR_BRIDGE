@@ -2,9 +2,9 @@ from typing import Union
 
 from pydantic import BaseModel
 
-from .action import ALL_CONTROL_TYPE
-from .cmd_id import CMD_ID
-from .type import Error_Info
+from src.types.cmd_id import CMD_ID
+from src.types.messages import ALL_CONTROL_TYPE
+from src.types.rabbitmq import Error_Info
 
 
 def send_pose_localization(is_accurate: bool):

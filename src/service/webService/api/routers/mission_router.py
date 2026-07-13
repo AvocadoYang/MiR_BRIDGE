@@ -2,8 +2,8 @@ import httpx
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from src.dtypes import REGISTER_TABLE
 from src.logger import logger
+from src.types.amr import REGISTER_TABLE
 
 from ...handler import CustomSuccessRoute
 

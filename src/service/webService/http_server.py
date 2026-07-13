@@ -14,7 +14,7 @@ from .handler import (
 
 class WebServer:
     def __init__(self, register, register_table):
-        from src.dtypes import REGISTER_TABLE
+        from src.types.amr import REGISTER_TABLE
 
         self.output = Subject[ALL_Web_Action_Type]()
 

@@ -1,4 +1,6 @@
-from typing import List, TypedDict
+from typing import List
+
+from src.types.rabbitmq import Queue_Ex_Pairs
 
 HEARTBEAT_EX = 'amr.heartbeat.topic'
 RES_EX = 'amr.res.topic'
@@ -49,12 +51,6 @@ def q2a_controlKey(serialNum: str):
     return f'amr.{serialNum}.control.*'
 
 
-class Queue_Ex_Pairs(TypedDict):
-    q_name: str
-    bind_ex: str
-    key: str
-
-
 def get_all_queue_exchange_relationship(serialNum: str) -> List[Queue_Ex_Pairs]:
     return [
         {
@@ -91,13 +87,6 @@ def dynamicListener_queues(serialNum):
         q2a_controlQName(serialNum=serialNum),
         q2a_amrResponseQName(serialNum=serialNum),
     ]
-
-
-class PublishOptions(TypedDict, total=False):
-    expiration: str
-    retries: int
-    retryDelay: str
-    persistent: bool
 
 
 volatile = ['pose', 'errorInfo', 'currentId', 'poseAccurate', 'isRegistered']

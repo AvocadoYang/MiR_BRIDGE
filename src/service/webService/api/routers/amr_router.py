@@ -4,12 +4,12 @@ from pydantic import BaseModel
 from reactivex import Subject
 
 from src.actions import All_Web_Action, ALL_Web_Action_Type
-from src.dtypes import REGISTER_TABLE
 from src.logger import logger
+from src.types.amr import REGISTER_TABLE
+from src.types.web import DELETE_AMR_INFO, REGISTER_AMR_INFO, AMRMapResponse, Work_Status
 
 from ...handler import ConflictError, CustomSuccessRoute, NotFoundError
 from ...httpx_set import headers
-from ...type import DELETE_AMR_INFO, REGISTER_AMR_INFO, AMRMapResponse, Work_Status
 
 router = APIRouter(prefix='/amr', route_class=CustomSuccessRoute)
 

@@ -14,8 +14,7 @@ from src.service.rabbitmq import HEARTBEAT, Rabbit_client_async
 from src.service.rabbitmq.queues import HEARTBEAT_EX
 from src.service.rabbitmq.transaction_wrapper import Heartbeat_Response
 from src.service.webService.httpx_set import headers
-
-from ..type import AMR_INFO
+from src.types.amr import AMR_INFO
 
 
 class Heartbeat:

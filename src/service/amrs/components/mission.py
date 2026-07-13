@@ -15,8 +15,7 @@ from src.service.rabbitmq.transaction_wrapper import (
     Write_Status_Response,
 )
 from src.service.webService.httpx_set import headers
-
-from ..type import AMR_INFO
+from src.types.amr import AMR_INFO
 
 
 class Mission_Param(BaseModel):

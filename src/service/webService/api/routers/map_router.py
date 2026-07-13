@@ -6,12 +6,13 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
-from src.dtypes import PERIPHERAL_TYPE_MAP, REGISTER_TABLE, Footprint, PeripheralType
 from src.logger import logger
+from src.types.amr import REGISTER_TABLE
+from src.types.map import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
+from src.types.web import Maps
 
 from ...handler import CustomSuccessRoute, ExternalServiceError, ValidationError
 from ...httpx_set import headers
-from ...type import Maps
 
 router = APIRouter(prefix='/map', route_class=CustomSuccessRoute)
 

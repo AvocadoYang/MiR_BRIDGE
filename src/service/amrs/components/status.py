@@ -17,9 +17,9 @@ from src.service.rabbitmq.transaction_wrapper import (
     Send_Pose,
     base_transaction_res,
 )
-from src.service.rabbitmq.type import PUBLISH_OPTIONS
-
-from ..type import AMR_INFO, BatteryInfo, IOInfo, Pose, Quaternion, RobotStatus, TFMessage
+from src.types.amr import AMR_INFO, BatteryInfo, IOInfo
+from src.types.rabbitmq import PUBLISH_OPTIONS
+from src.types.ros import Pose, Quaternion, RobotStatus, TFMessage
 
 
 class Status:
