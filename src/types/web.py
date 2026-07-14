@@ -31,6 +31,11 @@ class Maps(BaseModel):
     origin_theta: float
 
 
+class ALL_Groups(BaseModel):
+    id: str
+    name: str
+
+
 class REGISTER_TABLE_RESPONSE(BaseModel):
     register_table: dict[str, REGISTER_AMR_INFO]
 

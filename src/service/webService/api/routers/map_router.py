@@ -3,13 +3,13 @@ from typing import List, Union
 
 import httpx
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel
 from pydantic import ValidationError as PydanticValidationError
 
 from src.logger import logger
 from src.types.amr import REGISTER_TABLE
 from src.types.map import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
-from src.types.web import Maps
+from src.types.web import ALL_Groups, Maps
 
 from ...handler import CustomSuccessRoute, ExternalServiceError, ValidationError
 from ...httpx_set import headers
@@ -155,6 +155,38 @@ async def change_map_use(request: Request, payload: MapUsingFormat):
         return payload.map_id
     except (httpx.HTTPStatusError, Exception) as e:
         print(e)
+
+
+@router.get('/all_groups', response_model=List[ALL_Groups])
+async def get_all_groups(request: Request):
+    res: List[ALL_Groups] = []
+    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+
+    class Session(BaseModel):
+        guid: str
+        name: str
+
+    class SessionsSchema(RootModel[List[Session]]):
+        pass
+
+    seen_ids: set[str] = set()
+
+    for item in list(register_table.values()):
+        try:
+            url = f'http://{item["ip"]}/api/v2.0.0/sessions'
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url=url, headers=headers, timeout=2)
+                sessions = SessionsSchema.model_validate(response.json())
+                for session in sessions.root:
+                    if session.guid in seen_ids:
+                        continue
+                    seen_ids.add(session.guid)
+                    res.append(ALL_Groups(id=session.guid, name=session.name))
+                logger.bind(state='[GET]').info(f'{item["amrId"]} return all map groups info')
+        except Exception:
+            pass
+
+    return res
 
 
 @router.get('/sync_map', response_model=List[Maps])
