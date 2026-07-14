@@ -34,6 +34,8 @@ class CMD_ID(Enum):
     PURE_MOVE_ACTION = 'PURE_MOVE_ACTION'
     MIR_AMR_STATUS = 'MIR_AMR_STATUS'
 
+    JOYSTICK = 'JOYSTICK'
+
 
 blacklist = [
     CMD_ID.HEARTBEAT.value,
@@ -48,4 +50,5 @@ blacklist = [
     CMD_ID.HAS_MISSION.value,
     CMD_ID.MIR_AMR_STATUS.value,
     CMD_ID.EMERGENCY_STOP.value,
+    CMD_ID.JOYSTICK.value,
 ]
