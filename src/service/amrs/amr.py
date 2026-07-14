@@ -301,7 +301,7 @@ class AMR:
             scrollX: float
             scrollY: float
             floor: float
-            map_group: str
+            map_group_name: str
             map_group_id: str
 
         class ALL_Maps(BaseModel):
@@ -377,7 +377,7 @@ class AMR:
                             url=get_session_url, headers=headers, timeout=3
                         )
                         if 'error_code' in has_session.json():
-                            new_session = {'name': map.map_group, 'guid': map.map_group_id}
+                            new_session = {'name': map.map_group_name, 'guid': map.map_group_id}
                             data = await client.post(
                                 url=f'http://{self.amr_info.ip}/api/v2.0.0/sessions',
                                 json=new_session,
@@ -415,8 +415,8 @@ class AMR:
                             #     headers=headers,
                             #     json=
                             # )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(e, '@@@@@@@@')
 
                 locations_res = await client.get(url=get_loc_url, headers=headers, timeout=3)
 

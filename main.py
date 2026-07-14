@@ -157,7 +157,6 @@ if __name__ == '__main__':
                 time.sleep(3)
     except KeyboardInterrupt:
         logger.info('ctrl + c to close service')
-        print(asyncio.get_running_loop(), '@@@@@@@')
         sys.exit(1)
     except Exception:
         pass

@@ -5,7 +5,7 @@ import httpx
 import reactivex
 from reactivex import Subject, timer
 from reactivex.abc import DisposableBase
-from reactivex.operators import do_action, switch_map
+from reactivex.operators import do_action, skip, switch_map
 from reactivex.scheduler.eventloop import AsyncIOScheduler
 from reactivex.subject import BehaviorSubject
 
@@ -78,12 +78,18 @@ class Heartbeat:
         )
 
     def __qams_heartbeat_watch_dog(self, action: bool):
+        CHECK_INTERVAL = 0.7
+        MISS_THRESHOLD = 3
         if action:
             logger.bind(title=self.amr_info.amrId).info(
                 'connect with QAMS, start heartbeat detection'
             )
             return self.__heartbeat_timer_update.pipe(
-                switch_map(lambda _: timer(5.0, 5.0, scheduler=self.scheduler)),
+                switch_map(
+                    lambda _: timer(0.8, CHECK_INTERVAL, scheduler=self.scheduler).pipe(
+                        skip(MISS_THRESHOLD)
+                    )
+                ),
                 do_action(lambda _: self.qams_timeout_process()),
             )
         return reactivex.empty()
