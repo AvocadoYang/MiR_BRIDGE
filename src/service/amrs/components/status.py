@@ -22,7 +22,14 @@ from src.service.rabbitmq.transaction_wrapper import (
 )
 from src.types.amr import AMR_INFO, BatteryInfo, IOInfo
 from src.types.rabbitmq import PUBLISH_OPTIONS
-from src.types.ros import Pose, Quaternion, RobotStatus, TFMessage
+from src.types.ros import (
+    CallService,
+    Pose,
+    PublishMessage,
+    Quaternion,
+    RobotStatus,
+    TFMessage,
+)
 
 # max speed applied when converting joystick x/y (-100..100) to linear/angular velocity
 # TODO: tune against real robot behavior
@@ -250,7 +257,7 @@ class Status:
         if self.ws is None:
             return
 
-        msg = {
+        msg: CallService = {
             "op": "call_service",
             "id": "call_service:/mirsupervisor/requestErrorReset:20",
             "service": "/mirsupervisor/requestErrorReset",
@@ -273,7 +280,7 @@ class Status:
                         self.web_session_id = self._generate_web_session_id()
 
                     self.joystick_token_ready.clear()
-                    set_state_msg = {
+                    set_state_msg: CallService = {
                         "op": "call_service",
                         "id": f"call_service:/mirsupervisor/setRobotState:{uuid.uuid4()}",
                         "service": "/mirsupervisor/setRobotState",
@@ -283,7 +290,6 @@ class Status:
                             "web_session_id": self.web_session_id,
                         },
                     }
-                    print(f"send_set_state_message: {set_state_msg}")
                     await self.ws.send(json.dumps(set_state_msg))
 
                     try:
@@ -303,7 +309,7 @@ class Status:
             )
             return
 
-        msg = {
+        msg: PublishMessage = {
             "op": "publish",
             "id": f"publish:/joystick_vel:{uuid.uuid4()}",
             "topic": "/joystick_vel",
