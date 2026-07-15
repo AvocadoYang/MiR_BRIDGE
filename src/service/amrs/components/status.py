@@ -185,6 +185,18 @@ class Status:
 
             if topic == "/robot_status":
                 status_msg_data: RobotStatus = payload.get("msg")
+
+                if self.joystick_token is not None and not status_msg_data.get(
+                    "joystick_web_session_id"
+                ):
+                    logger.bind(title=self.amr_info.amrId).info(
+                        "joystick session expired on robot side, "
+                        "will re-register on next joystick command"
+                    )
+                    self.joystick_token = None
+                    self.web_session_id = None
+                    self.joystick_token_ready.clear()
+
                 pose: Pose = {
                     "x": status_msg_data["position"]["x"],
                     "y": status_msg_data["position"]["y"],
