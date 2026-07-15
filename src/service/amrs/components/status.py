@@ -1,6 +1,8 @@
 import asyncio
 import json
 import math
+import random
+import time
 import uuid
 from typing import List
 
@@ -55,7 +57,7 @@ class Status:
         self.joystick_token: str | None = None
         self.joystick_token_ready = asyncio.Event()
         self.joystick_token_lock = asyncio.Lock()
-        self.joystick_web_session_id: str | None = None
+        self.web_session_id: str | None = None
 
         self.subs: List[DisposableBase] = [
             control_transaction_sub_.subscribe(self.action_processor)
@@ -139,7 +141,7 @@ class Status:
             self.ws = None
             self.joystick_token = None
             self.joystick_token_ready.clear()
-            self.joystick_web_session_id = None
+            self.web_session_id = None
             self.mir_service_connect_status.on_next(False)
             await asyncio.sleep(3)
 
@@ -176,9 +178,6 @@ class Status:
 
             if topic == "/robot_status":
                 status_msg_data: RobotStatus = payload.get("msg")
-                self.joystick_web_session_id = status_msg_data[
-                    "joystick_web_session_id"
-                ]
                 pose: Pose = {
                     "x": status_msg_data["position"]["x"],
                     "y": status_msg_data["position"]["y"],
@@ -242,6 +241,11 @@ class Status:
     def sanitize_degree(self, deg: float):
         return ((deg % 360) + 360) % 360
 
+    def _generate_web_session_id(self) -> str:
+        # mimics the "<ms timestamp>-<0~100 random float>" shape observed
+        # from a real joystick client's setRobotState call
+        return f"{int(time.time() * 1000)}-{random.uniform(0, 100)}"
+
     async def request_error_reset(self):
         if self.ws is None:
             return
@@ -261,17 +265,13 @@ class Status:
             return
 
         if self.joystick_token is None:
-            if self.joystick_web_session_id is None:
-                logger.bind(title=self.amr_info.amrId).warning(
-                    'no "joystick_web_session_id" from /robot_status yet, '
-                    "dropping joystick command"
-                )
-                return
-
             async with self.joystick_token_lock:
                 # re-check after acquiring the lock: another concurrent call may have
                 # already fetched the token while we were waiting for it
                 if self.joystick_token is None:
+                    if self.web_session_id is None:
+                        self.web_session_id = self._generate_web_session_id()
+
                     self.joystick_token_ready.clear()
                     set_state_msg = {
                         "op": "call_service",
@@ -280,9 +280,10 @@ class Status:
                         "type": "mirSupervisor/SetState",
                         "args": {
                             "robotState": JOYSTICK_ROBOT_STATE,
-                            "web_session_id": self.joystick_web_session_id,
+                            "web_session_id": self.web_session_id,
                         },
                     }
+                    print(f"send_set_state_message: {set_state_msg}")
                     await self.ws.send(json.dumps(set_state_msg))
 
                     try:
@@ -295,6 +296,12 @@ class Status:
                             "joystick token not received in time, dropping joystick command"
                         )
                         return
+
+        if self.joystick_token is None:
+            logger.bind(title=self.amr_info.amrId).warning(
+                "joystick token still not available, dropping joystick command"
+            )
+            return
 
         msg = {
             "op": "publish",

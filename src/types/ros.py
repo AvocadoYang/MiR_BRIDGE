@@ -131,5 +131,5 @@ class RobotStatus(TypedDict):
     user_prompt: UserPrompt
     safety_system_muted: bool
     joystick_low_speed_mode_enabled: bool
-    joystick_web_session_id: str
+    web_session_id: str
     mode_key_state: str
