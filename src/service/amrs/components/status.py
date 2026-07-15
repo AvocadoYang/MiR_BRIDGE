@@ -115,7 +115,11 @@ class Status:
                 ) as websocket:
                     self.ws = websocket
 
-                    topics_to_subscribe = ["/tf", "/robot_status"]
+                    topics_to_subscribe = [
+                        "/tf",
+                        "/robot_status",
+                        "/PB/ready_to_send_mc_cmd",
+                    ]
 
                     for topic in topics_to_subscribe:
                         sub_msg = {"op": "subscribe", "topic": topic}
@@ -239,7 +243,18 @@ class Status:
                     options=options,
                 )
 
-            elif payload.get("op") == "service_response":
+            if topic == "/PB/ready_to_send_mc_cmd":
+                ready_msg_data = payload.get("msg")["data"]
+                if ready_msg_data:
+                    logger.bind(title=self.amr_info.amrId).info(
+                        "MiR is ready to send mc command."
+                    )
+                else:
+                    logger.bind(title=self.amr_info.amrId).info(
+                        "MiR is not ready to send mc command."
+                    )
+
+            if payload.get("op") == "service_response":
                 values = payload.get("values") or {}
                 if "joystick_token" in values:
                     self.joystick_token = values["joystick_token"]
