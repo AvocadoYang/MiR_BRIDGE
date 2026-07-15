@@ -1,6 +1,9 @@
 import asyncio
 import json
 import math
+import random
+import time
+import uuid
 from typing import List
 
 import websockets
@@ -20,7 +23,23 @@ from src.service.rabbitmq.transaction_wrapper import (
 )
 from src.types.amr import AMR_INFO, BatteryInfo, IOInfo
 from src.types.rabbitmq import PUBLISH_OPTIONS
-from src.types.ros import LaserMapPointCloud, Pose, Quaternion, RobotStatus, TFMessage
+from src.types.ros import (
+    CallService,
+    LaserMapPointCloud,
+    Pose,
+    PublishMessage,
+    Quaternion,
+    RobotStatus,
+    TFMessage,
+)
+
+# max speed applied when converting joystick x/y (-100..100) to linear/angular velocity
+# TODO: tune against real robot behavior
+JOYSTICK_MAX_LINEAR_X = 0.8
+JOYSTICK_MAX_ANGULAR_Z = 0.5
+JOYSTICK_TOKEN_TIMEOUT = 2.0
+# MiR robotState value (test use 11) that puts the robot into joystick control mode
+JOYSTICK_ROBOT_STATE = 11
 
 
 class Status:
@@ -41,6 +60,11 @@ class Status:
         self.rb = rabbit_service
 
         self.amr_status_signal: Subject[str] = Subject()
+
+        self.joystick_token: str | None = None
+        self.joystick_token_ready = asyncio.Event()
+        self.joystick_token_lock = asyncio.Lock()
+        self.web_session_id: str | None = None
 
         self.subs: List[DisposableBase] = [
             control_transaction_sub_.subscribe(self.action_processor)
@@ -69,6 +93,8 @@ class Status:
                     message=base_transaction_res(action=action, return_code='200'),
                 )
             )
+        if payload['cmd_id'] == CMD_ID.JOYSTICK.value:
+            asyncio.create_task(self.send_joystick_command(payload['x'], payload['y']))
 
     async def ros_bridge_connect(self, mir_token: str):
         """
@@ -82,14 +108,18 @@ class Status:
         while True:
             try:
                 async with websockets.connect(
-                    url, additional_headers=cookie_header, ping_interval=1.5, ping_timeout=1.5
+                    url,
+                    additional_headers=cookie_header,
+                    ping_interval=1.5,
+                    ping_timeout=1.5,
                 ) as websocket:
                     self.ws = websocket
 
                     topics_to_subscribe = [
                         # '/tf',
-                        '/robot_status',
                         '/mirwebapp/laser_map_pointcloud',
+                        '/robot_status',
+                        '/PB/ready_to_send_mc_cmd',
                     ]
 
                     for topic in topics_to_subscribe:
@@ -121,6 +151,9 @@ class Status:
                 )
 
             self.ws = None
+            self.joystick_token = None
+            self.joystick_token_ready.clear()
+            self.web_session_id = None
             self.mir_service_connect_status.on_next(False)
             await asyncio.sleep(3)
 
@@ -152,8 +185,21 @@ class Status:
                     message=point_cloud_msg,
                     options=options,
                 )
+
             if topic == '/robot_status':
                 status_msg_data: RobotStatus = payload.get('msg')
+
+                if self.joystick_token is not None and not status_msg_data.get(
+                    'joystick_web_session_id'
+                ):
+                    logger.bind(title=self.amr_info.amrId).info(
+                        'joystick session expired on robot side, '
+                        'will re-register on next joystick command'
+                    )
+                    self.joystick_token = None
+                    self.web_session_id = None
+                    self.joystick_token_ready.clear()
+
                 pose: Pose = {
                     'x': status_msg_data['position']['x'],
                     'y': status_msg_data['position']['y'],
@@ -218,6 +264,20 @@ class Status:
                 #     options=options,
                 # )
                 return
+            if topic == '/PB/ready_to_send_mc_cmd':
+                ready_msg_data = payload.get('msg')['data']
+                if ready_msg_data:
+                    logger.bind(title=self.amr_info.amrId).info('MiR is ready to send mc command.')
+                else:
+                    logger.bind(title=self.amr_info.amrId).info(
+                        'MiR is not ready to send mc command.'
+                    )
+
+            if payload.get('op') == 'service_response':
+                values = payload.get('values') or {}
+                if 'joystick_token' in values:
+                    self.joystick_token = values['joystick_token']
+                    self.joystick_token_ready.set()
 
             else:
                 pass
@@ -234,17 +294,86 @@ class Status:
     def sanitize_degree(self, deg: float):
         return ((deg % 360) + 360) % 360
 
+    def _generate_web_session_id(self) -> str:
+        # mimics the "<ms timestamp>-<0~100 random float>" shape observed
+        # from a real joystick client's setRobotState call
+        return f'{int(time.time() * 1000)}-{random.uniform(0, 100)}'
+
     async def request_error_reset(self):
         if self.ws is None:
             return
 
-        msg = {
+        msg: CallService = {
             'op': 'call_service',
             'id': 'call_service:/mirsupervisor/requestErrorReset:20',
             'service': '/mirsupervisor/requestErrorReset',
             'type': 'std_srv/Empty',
             'args': {},
         }
+
+        await self.ws.send(json.dumps(msg))
+
+    async def send_joystick_command(self, x: float, y: float):
+        if self.ws is None:
+            return
+
+        if self.joystick_token is None:
+            async with self.joystick_token_lock:
+                # re-check after acquiring the lock: another concurrent call may have
+                # already fetched the token while we were waiting for it
+                if self.joystick_token is None:
+                    if self.web_session_id is None:
+                        self.web_session_id = self._generate_web_session_id()
+
+                    self.joystick_token_ready.clear()
+                    set_state_msg: CallService = {
+                        'op': 'call_service',
+                        'id': f'call_service:/mirsupervisor/setRobotState:{uuid.uuid4()}',
+                        'service': '/mirsupervisor/setRobotState',
+                        'type': 'mirSupervisor/SetState',
+                        'args': {
+                            'robotState': JOYSTICK_ROBOT_STATE,
+                            'web_session_id': self.web_session_id,
+                        },
+                    }
+                    await self.ws.send(json.dumps(set_state_msg))
+
+                    try:
+                        await asyncio.wait_for(
+                            self.joystick_token_ready.wait(),
+                            timeout=JOYSTICK_TOKEN_TIMEOUT,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.bind(title=self.amr_info.amrId).warning(
+                            'joystick token not received in time, dropping joystick command'
+                        )
+                        return
+
+        if self.joystick_token is None:
+            logger.bind(title=self.amr_info.amrId).warning(
+                'joystick token still not available, dropping joystick command'
+            )
+            return
+
+        msg: PublishMessage = {
+            'op': 'publish',
+            'id': f'publish:/joystick_vel:{uuid.uuid4()}',
+            'topic': '/joystick_vel',
+            'msg': {
+                'joystick_token': self.joystick_token,
+                'speed_command': {
+                    'linear': {'x': (y / 100) * JOYSTICK_MAX_LINEAR_X, 'y': 0, 'z': 0},
+                    'angular': {
+                        'x': 0,
+                        'y': 0,
+                        'z': (x / 100) * JOYSTICK_MAX_ANGULAR_Z,
+                    },
+                },
+            },
+            'latch': False,
+        }
+
+        print(f'send_joystick_command: {msg}')
 
         await self.ws.send(json.dumps(msg))
 

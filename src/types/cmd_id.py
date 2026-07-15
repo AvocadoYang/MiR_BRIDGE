@@ -35,6 +35,8 @@ class CMD_ID(Enum):
     MIR_AMR_STATUS = 'MIR_AMR_STATUS'
     POINT_CLOUD = 'POINT_CLOUD'
 
+    JOYSTICK = 'JOYSTICK'
+
 
 blacklist = [
     CMD_ID.HEARTBEAT.value,
@@ -50,4 +52,5 @@ blacklist = [
     CMD_ID.MIR_AMR_STATUS.value,
     CMD_ID.EMERGENCY_STOP.value,
     CMD_ID.POINT_CLOUD.value,
+    CMD_ID.JOYSTICK.value,
 ]

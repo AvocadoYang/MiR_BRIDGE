@@ -61,6 +61,13 @@ class Pure_Move_Action(Payload_Base):
 
 
 # ----------
+class Joystick_Control(Payload_Base):
+    cmd_id: Literal['JOYSTICK']
+    x: float
+    y: float
+
+
+# ----------
 
 
 class ALL_CONTROL_TYPE(TypedDict):
@@ -71,4 +78,6 @@ class ALL_CONTROL_TYPE(TypedDict):
     flag: Literal['REQ', 'RES']
     amrId: str
 
-    payload: Union[Update_Pose, Emergency_Stop, Write_Status, Write_Cancel, Pure_Move_Action]
+    payload: Union[
+        Update_Pose, Emergency_Stop, Write_Status, Write_Cancel, Pure_Move_Action, Joystick_Control
+    ]

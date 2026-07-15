@@ -1,4 +1,4 @@
-from typing import List, TypedDict
+from typing import Dict, List, TypedDict
 
 
 class Pose(TypedDict):
@@ -158,3 +158,27 @@ class LaserMapPointCloud(TypedDict):
 
 
 ###
+class CallService(TypedDict):
+    op: str
+    id: str
+    service: str
+    type: str
+    args: Dict[str, str | int | float | bool | None]
+
+
+class SpeedCommand(TypedDict):
+    linear: Vector3
+    angular: Vector3
+
+
+class JoystickVelMsg(TypedDict):
+    joystick_token: str
+    speed_command: SpeedCommand
+
+
+class PublishMessage(TypedDict):
+    op: str
+    id: str
+    topic: str
+    msg: JoystickVelMsg
+    latch: bool
