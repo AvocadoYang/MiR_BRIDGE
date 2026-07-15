@@ -14,12 +14,13 @@ from src.service.rabbitmq.queues import IO_EX, RES_EX
 from src.service.rabbitmq.transaction_wrapper import (
     Send_IO_INFO,
     Send_MiR_AMR_STATUE,
+    Send_Point_Cloud,
     Send_Pose,
     base_transaction_res,
 )
 from src.types.amr import AMR_INFO, BatteryInfo, IOInfo
 from src.types.rabbitmq import PUBLISH_OPTIONS
-from src.types.ros import Pose, Quaternion, RobotStatus, TFMessage
+from src.types.ros import LaserMapPointCloud, Pose, Quaternion, RobotStatus, TFMessage
 
 
 class Status:
@@ -85,7 +86,11 @@ class Status:
                 ) as websocket:
                     self.ws = websocket
 
-                    topics_to_subscribe = ['/tf', '/robot_status']
+                    topics_to_subscribe = [
+                        # '/tf',
+                        '/robot_status',
+                        '/mirwebapp/laser_map_pointcloud',
+                    ]
 
                     for topic in topics_to_subscribe:
                         sub_msg = {'op': 'subscribe', 'topic': topic}
@@ -126,30 +131,27 @@ class Status:
         try:
             payload = json.loads(raw_message)
             topic = payload.get('topic')
-
-            if topic == '/tf':
-                pose_msg_data: TFMessage = payload.get('msg')
-                position = pose_msg_data['transforms'][0]
-                pose: Pose = {
-                    'x': position['transform']['translation']['x'],
-                    'y': position['transform']['translation']['y'],
-                    'yaw': self.sanitize_degree(
-                        self.quaternion_to_yaw(position['transform']['rotation'])
-                    ),
-                }
-                self.position = pose
-                msg = Send_Pose(**pose)
+            if topic == '/mirwebapp/laser_map_pointcloud':
+                point_cloud: LaserMapPointCloud = payload.get('msg')
+                point_cloud_msg = Send_Point_Cloud(
+                    height=point_cloud['height'],
+                    width=point_cloud['width'],
+                    fields=point_cloud['fields'],
+                    is_bigendian=point_cloud['is_bigendian'],
+                    point_step=point_cloud['point_step'],
+                    row_step=point_cloud['row_step'],
+                    data=point_cloud['data'],
+                    is_dense=point_cloud['is_dense'],
+                )
                 options = PUBLISH_OPTIONS()
                 options.expiration = 2
-                # await self.rb.req_publish(
-                #     exchange_name=IO_EX,
-                #     routing_key=f'amr.io.{self.amr_info.amrId}.ioInfo',
-                #     amr_info=self.amr_info,
-                #     message=msg,
-                #     options=options,
-                # )
-                return
-
+                await self.rb.req_publish(
+                    exchange_name=IO_EX,
+                    routing_key=f'amr.io.{self.amr_info.amrId}.point_cloud',
+                    amr_info=self.amr_info,
+                    message=point_cloud_msg,
+                    options=options,
+                )
             if topic == '/robot_status':
                 status_msg_data: RobotStatus = payload.get('msg')
                 pose: Pose = {
@@ -193,6 +195,29 @@ class Status:
                     message=io_info,
                     options=options,
                 )
+
+            if topic == '/tf':
+                pose_msg_data: TFMessage = payload.get('msg')
+                position = pose_msg_data['transforms'][0]
+                pose: Pose = {
+                    'x': position['transform']['translation']['x'],
+                    'y': position['transform']['translation']['y'],
+                    'yaw': self.sanitize_degree(
+                        self.quaternion_to_yaw(position['transform']['rotation'])
+                    ),
+                }
+                self.position = pose
+                msg = Send_Pose(**pose)
+                options = PUBLISH_OPTIONS()
+                options.expiration = 2
+                # await self.rb.req_publish(
+                #     exchange_name=IO_EX,
+                #     routing_key=f'amr.io.{self.amr_info.amrId}.ioInfo',
+                #     amr_info=self.amr_info,
+                #     message=msg,
+                #     options=options,
+                # )
+                return
 
             else:
                 pass

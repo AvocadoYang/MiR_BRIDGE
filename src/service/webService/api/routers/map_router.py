@@ -1,4 +1,3 @@
-import json
 from typing import List, Union
 
 import httpx
@@ -203,6 +202,10 @@ async def async_map(request: Request):
         info: List[Info]
 
     for item in list(register_table.values()):
+        if item['amr'] is None:
+            continue
+        if not item['amr'].connect_status['mir_service_is_connect']:
+            continue
         try:
             url = f'http://{item["ip"]}/api/v2.0.0/maps'
             async with httpx.AsyncClient() as client:
@@ -238,9 +241,7 @@ async def async_map(request: Request):
                             origin_theta=valid_map_detail.origin_theta,
                         )
                         res.append(r)
-            logger.bind(state='[GET]').info(
-                f'{item["amrId"]} return sync maps info with {json.dumps(print_map_info, indent=2)}'
-            )
+            logger.bind(state='[GET]').info(f'{item["amrId"]} return sync maps info')
         except PydanticValidationError as e:
             raise ValidationError(
                 message=f'msg: {e.errors()[0]["msg"]}, input: {e.errors()[0]["input"]}'

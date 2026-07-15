@@ -133,3 +133,28 @@ class RobotStatus(TypedDict):
     joystick_low_speed_mode_enabled: bool
     joystick_web_session_id: str
     mode_key_state: str
+
+
+### PointCloud
+
+
+class PointField(TypedDict):
+    name: str
+    offset: int
+    datatype: int
+    count: int
+
+
+class LaserMapPointCloud(TypedDict):
+    header: Header
+    height: int
+    width: int
+    fields: List[PointField]
+    is_bigendian: bool
+    point_step: int
+    row_step: int
+    data: str
+    is_dense: bool
+
+
+###

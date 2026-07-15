@@ -1,10 +1,11 @@
-from typing import Union
+from typing import List, Union
 
 from pydantic import BaseModel
 
 from src.types.cmd_id import CMD_ID
 from src.types.messages import ALL_CONTROL_TYPE
 from src.types.rabbitmq import Error_Info
+from src.types.ros import PointField
 
 
 def send_pose_localization(is_accurate: bool):
@@ -16,6 +17,18 @@ class Send_Pose(BaseModel):
     x: float
     y: float
     yaw: float
+
+
+class Send_Point_Cloud(BaseModel):
+    cmd_id: str = CMD_ID.POINT_CLOUD.value
+    height: int
+    width: int
+    fields: List[PointField]
+    is_bigendian: bool
+    point_step: int
+    row_step: int
+    data: str
+    is_dense: bool
 
 
 class Send_MiR_AMR_STATUE(BaseModel):
@@ -72,7 +85,9 @@ def send_feedback(feedback_json: str):
     return {'cmd_id': CMD_ID.FEEDBACK.value, 'feedback': feedback_json}
 
 
-ALL_REQUEST_MSG_FORMATE = Union[Send_Pose, Send_MiR_AMR_STATUE, Send_Read_Status, Send_IO_INFO]
+ALL_REQUEST_MSG_FORMATE = Union[
+    Send_Pose, Send_MiR_AMR_STATUE, Send_Read_Status, Send_IO_INFO, Send_Point_Cloud
+]
 
 ## response fn
 

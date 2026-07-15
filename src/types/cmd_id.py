@@ -33,6 +33,7 @@ class CMD_ID(Enum):
     ## for Mir
     PURE_MOVE_ACTION = 'PURE_MOVE_ACTION'
     MIR_AMR_STATUS = 'MIR_AMR_STATUS'
+    POINT_CLOUD = 'POINT_CLOUD'
 
 
 blacklist = [
@@ -48,4 +49,5 @@ blacklist = [
     CMD_ID.HAS_MISSION.value,
     CMD_ID.MIR_AMR_STATUS.value,
     CMD_ID.EMERGENCY_STOP.value,
+    CMD_ID.POINT_CLOUD.value,
 ]
