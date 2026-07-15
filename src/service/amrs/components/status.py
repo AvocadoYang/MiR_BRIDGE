@@ -36,7 +36,7 @@ from src.types.ros import (
 JOYSTICK_MAX_LINEAR_X = 0.8
 JOYSTICK_MAX_ANGULAR_Z = 0.5
 JOYSTICK_TOKEN_TIMEOUT = 2.0
-# MiR robotState value that puts the robot into joystick control mode
+# MiR robotState value (test use 11) that puts the robot into joystick control mode
 JOYSTICK_ROBOT_STATE = 11
 
 
@@ -343,11 +343,11 @@ class Status:
             "msg": {
                 "joystick_token": self.joystick_token,
                 "speed_command": {
-                    "linear": {"x": (x / 100) * JOYSTICK_MAX_LINEAR_X, "y": 0, "z": 0},
+                    "linear": {"x": (y / 100) * JOYSTICK_MAX_LINEAR_X, "y": 0, "z": 0},
                     "angular": {
                         "x": 0,
                         "y": 0,
-                        "z": (y / 100) * JOYSTICK_MAX_ANGULAR_Z,
+                        "z": (x / 100) * JOYSTICK_MAX_ANGULAR_Z,
                     },
                 },
             },
@@ -356,7 +356,7 @@ class Status:
 
         print(f"send_joystick_command: {msg}")
 
-        # await self.ws.send(json.dumps(msg))
+        await self.ws.send(json.dumps(msg))
 
     async def destroy(self):
         for sub in self.subs:
