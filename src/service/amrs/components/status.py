@@ -19,6 +19,7 @@ from src.service.rabbitmq.transaction_wrapper import (
     Send_MiR_AMR_STATUE,
     Send_Point_Cloud,
     Send_Pose,
+    Send_Ready_To_Send_Mc_Cmd,
     base_transaction_res,
 )
 from src.types.amr import AMR_INFO, BatteryInfo, IOInfo
@@ -268,14 +269,16 @@ class Status:
                 return
             if topic == "/PB/ready_to_send_mc_cmd":
                 ready_msg_data = payload.get("msg")["data"]
-                if ready_msg_data:
-                    logger.bind(title=self.amr_info.amrId).info(
-                        "MiR is ready to send mc command."
-                    )
-                else:
-                    logger.bind(title=self.amr_info.amrId).info(
-                        "MiR is not ready to send mc command."
-                    )
+                ready_msg = Send_Ready_To_Send_Mc_Cmd(ready=ready_msg_data)
+                options = PUBLISH_OPTIONS()
+                options.expiration = 2
+                await self.rb.req_publish(
+                    exchange_name=IO_EX,
+                    routing_key=f"amr.io.{self.amr_info.amrId}.readyToSendMcCmd",
+                    amr_info=self.amr_info,
+                    message=ready_msg,
+                    options=options,
+                )
 
             if payload.get("op") == "service_response":
                 values = payload.get("values") or {}

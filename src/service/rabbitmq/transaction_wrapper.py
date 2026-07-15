@@ -53,6 +53,11 @@ class Send_IO_INFO(BaseModel):
     io: str
 
 
+class Send_Ready_To_Send_Mc_Cmd(BaseModel):
+    cmd_id: str = CMD_ID.READY_TO_SEND_MC_CMD.value
+    ready: bool
+
+
 def send_error_info(error_info: Error_Info):
     return {'cmd_id': CMD_ID.ERROR_INFO.value, **error_info}
 
@@ -86,7 +91,12 @@ def send_feedback(feedback_json: str):
 
 
 ALL_REQUEST_MSG_FORMATE = Union[
-    Send_Pose, Send_MiR_AMR_STATUE, Send_Read_Status, Send_IO_INFO, Send_Point_Cloud
+    Send_Pose,
+    Send_MiR_AMR_STATUE,
+    Send_Read_Status,
+    Send_IO_INFO,
+    Send_Point_Cloud,
+    Send_Ready_To_Send_Mc_Cmd,
 ]
 
 ## response fn
