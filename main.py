@@ -41,6 +41,11 @@ class MiR_BRIDGE:
         try:
             yield
         finally:
+            amrs = [amr_info['amr'] for amr_info in self.register_table.values()]
+            await asyncio.gather(
+                *(amr.destroy() for amr in amrs if amr is not None),
+                return_exceptions=True,
+            )
             await self.rabbitmq.close()
 
     async def create_amr_instance(self):
@@ -58,7 +63,7 @@ class MiR_BRIDGE:
                 rabbit_service=self.rabbitmq,
             )
             amr_info['amr'] = amr
-            task.append(asyncio.create_task(amr.get_MiR_info()))
+            task.append(amr.start())
         logger.info(f"currently obtaining mir's token for {len(task)} amr")
 
     def sync_register_table(self):
@@ -127,7 +132,7 @@ class MiR_BRIDGE:
                     'is_enable': action.is_enable,
                     'amr': amr,
                 }
-                asyncio.create_task(amr.get_MiR_info())
+                amr.start()
                 return
             case 'DELETE_AMR':
                 amr = self.register_table[action.mac_address]['amr']

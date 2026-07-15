@@ -269,9 +269,10 @@ class Status:
                 if ready_msg_data:
                     logger.bind(title=self.amr_info.amrId).info('MiR is ready to send mc command.')
                 else:
-                    logger.bind(title=self.amr_info.amrId).info(
-                        'MiR is not ready to send mc command.'
-                    )
+                    pass
+                    # logger.bind(title=self.amr_info.amrId).info(
+                    #     'MiR is not ready to send mc command.'
+                    # )
 
             if payload.get('op') == 'service_response':
                 values = payload.get('values') or {}

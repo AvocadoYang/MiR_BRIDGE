@@ -96,3 +96,42 @@ async def switch_work_status(request: Request, work_status: Work_Status):
         f'switch work state: {"work stop" if work_status.status == 4 else "working"}'
     )
     return []
+
+
+class Localization(BaseModel):
+    amrId: str
+    serialNumber: str
+    x: float
+    y: float
+    yaw: float
+
+
+class Position_Payload(BaseModel):
+    x: float
+    y: float
+    orientation: float
+
+
+class Localization_Payload(BaseModel):
+    position: Position_Payload
+
+
+@router.post('/localization')
+async def localization(request: Request, position: Localization):
+    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+    if position.serialNumber not in register_table:
+        raise NotFoundError(
+            f'can not found mac address {position.serialNumber} in register table',
+        )
+    amr = register_table[position.serialNumber]
+    url = f'http://{amr["ip"]}/api/v2.0.0/status'
+    try:
+        async with httpx.AsyncClient() as client:
+            Position = Position_Payload(x=position.x, y=position.y, orientation=position.yaw)
+            payload = Localization_Payload(position=Position)
+            await client.put(url=url, json=payload.model_dump(), headers=headers, timeout=3)
+
+        logger.bind(state='[put]').info(f'localization {position.amrId} successfully')
+    except (httpx.HTTPStatusError, Exception) as e:
+        print(e)
+    return position

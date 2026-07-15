@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from pathlib import Path
 from typing import List, Tuple, Union
 
@@ -40,6 +41,7 @@ class AMR:
     ):
         self.start_destroy_process = False
         self.map_resource_is_init: bool = False
+        self.mir_info_task: Union[asyncio.Task, None] = None
 
         self.amr_info: AMR_INFO = AMR_INFO(
             amrId=amrId, mac_address=mac_address, ip=ip, is_enable=is_enable
@@ -131,6 +133,14 @@ class AMR:
             ),
         ]
 
+    def start(self) -> asyncio.Task:
+        """
+        launch the background task that obtains the mir token; tracked so it can be cancelled on destroy()
+        """
+
+        self.mir_info_task = asyncio.create_task(self.get_MiR_info())
+        return self.mir_info_task
+
     async def get_MiR_info(self):
         class InfoSchema(BaseModel):
             user_id: str
@@ -141,7 +151,7 @@ class AMR:
             allowed_methods: Union[str, None]
 
         url = f'http://{self.amr_info.ip}/api/v2.0.0/users/auth'
-        while not self.got_mir_token or not self.start_destroy_process:
+        while not self.start_destroy_process:
             try:
                 async with httpx.AsyncClient() as client:
                     response = await client.post(url=url, headers=headers, timeout=2)
@@ -362,7 +372,6 @@ class AMR:
         try:
             get_loc_url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/test/map?type=locations'
             get_all_map_url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/setting/get-allMapData'
-            return
             async with httpx.AsyncClient() as client:
                 maps_res = await client.get(url=get_all_map_url, headers=headers, timeout=3)
                 valid_maps_data = ALL_Maps(**maps_res.json())
@@ -456,6 +465,10 @@ class AMR:
 
     async def destroy(self):
         self.start_destroy_process = True
+        if self.mir_info_task is not None:
+            self.mir_info_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.mir_info_task
         if self.rabbit_service.channel:
             queue_pairs = get_all_queue_exchange_relationship(self.amr_info.mac_address)
             for pair in queue_pairs:
