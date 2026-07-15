@@ -19,7 +19,7 @@ from src.service.rabbitmq.transaction_wrapper import (
     Send_MiR_AMR_STATUE,
     Send_Point_Cloud,
     Send_Pose,
-    Send_Ready_To_Send_Mc_Cmd,
+    Send_Ready_To_Joystick_Cmd,
     base_transaction_res,
 )
 from src.types.amr import AMR_INFO, BatteryInfo, IOInfo
@@ -68,6 +68,10 @@ class Status:
         self.joystick_token_ready = asyncio.Event()
         self.joystick_token_lock = asyncio.Lock()
         self.web_session_id: str | None = None
+
+        # 從 /robot_status 訂閱的最新資料，主要用來判斷 joystick 是否 available 以及是否被其他人使用
+        self.robot_state_text: str = ""
+        self.robot_joystick_web_session_id: str = ""
 
         self.subs: List[DisposableBase] = [
             control_transaction_sub_.subscribe(self.action_processor)
@@ -157,6 +161,8 @@ class Status:
             self.joystick_token = None
             self.joystick_token_ready.clear()
             self.web_session_id = None
+            self.robot_state_text = ""
+            self.robot_joystick_web_session_id = ""
             self.mir_service_connect_status.on_next(False)
             await asyncio.sleep(3)
 
@@ -192,8 +198,14 @@ class Status:
             if topic == "/robot_status":
                 status_msg_data: RobotStatus = payload.get("msg")
 
-                if self.joystick_token is not None and not status_msg_data.get(
-                    "joystick_web_session_id"
+                self.robot_state_text = status_msg_data["state_text"]
+                self.robot_joystick_web_session_id = status_msg_data.get(
+                    "joystick_web_session_id", ""
+                )
+
+                if (
+                    self.joystick_token is not None
+                    and not self.robot_joystick_web_session_id
                 ):
                     logger.bind(title=self.amr_info.amrId).info(
                         "joystick session expired on robot side, "
@@ -267,9 +279,20 @@ class Status:
                 #     options=options,
                 # )
                 return
+
             if topic == "/PB/ready_to_send_mc_cmd":
                 ready_msg_data = payload.get("msg")["data"]
-                ready_msg = Send_Ready_To_Send_Mc_Cmd(ready=ready_msg_data)
+                joystick_owned_by_others = bool(
+                    self.robot_joystick_web_session_id
+                ) and (self.robot_joystick_web_session_id != self.web_session_id)
+                joystick_available = (
+                    bool(ready_msg_data) and not joystick_owned_by_others
+                )
+                ready_msg = Send_Ready_To_Joystick_Cmd(
+                    joystick_available=joystick_available,
+                    status_text=self.robot_state_text,
+                )
+
                 options = PUBLISH_OPTIONS()
                 options.expiration = 2
                 await self.rb.req_publish(
