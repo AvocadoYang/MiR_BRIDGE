@@ -278,7 +278,12 @@ class Status:
                     write_battery_info_time=status_msg_data["battery_time_remaining"],
                 )
 
-                io = IOInfo(battery_info=battery_info)
+                velocity = status_msg_data["velocity"]
+                io = IOInfo(
+                    battery_info=battery_info,
+                    linear_x=velocity["linear"],
+                    angular_z=velocity["angular"],
+                )
 
                 io_info = Send_IO_INFO(io=io.model_dump_json())
                 await self.rb.req_publish(
