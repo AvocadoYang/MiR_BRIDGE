@@ -54,7 +54,7 @@ class Send_IO_INFO(BaseModel):
 
 
 class Send_Ready_To_Joystick_Cmd(BaseModel):
-    cmd_id: str = CMD_ID.READY_TO_SEND_MC_CMD.value
+    cmd_id: str = CMD_ID.UPDATE_READY_TO_JOYSTICK_CMD.value
     joystick_available: bool
     status_text: str
 
