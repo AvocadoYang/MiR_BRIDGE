@@ -86,3 +86,17 @@ Lint/format rules are configured in `pyproject.toml` (line length 100, single qu
 uvx ruff check .    # lint
 uvx ruff format .   # format
 ```
+
+## Packaging
+
+The project can be packaged into a standalone binary with [PyInstaller](https://pyinstaller.org/) (a dev dependency, see `main.spec`):
+
+```bash
+uv run pyinstaller main.spec
+```
+
+This produces a single-file executable at `dist/main` (bundles `src/configs/config.yaml` alongside it). Run it directly instead of `uv run main.py`:
+
+```bash
+./dist/main
+```
