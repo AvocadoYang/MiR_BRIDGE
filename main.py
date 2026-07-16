@@ -166,4 +166,9 @@ if __name__ == '__main__':
     except Exception:
         pass
 
-    uvicorn.run(mir_bridge.web_server._app, host='0.0.0.0', port=4008, log_config=None)
+    try:
+        uvicorn.run(mir_bridge.web_server._app, host='0.0.0.0', port=4008, log_config=None)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # a second Ctrl+C during graceful shutdown interrupts uvicorn's lifespan
+        # wait and surfaces as a raw CancelledError/KeyboardInterrupt traceback
+        logger.info('service shutdown by user (ctrl+c)')

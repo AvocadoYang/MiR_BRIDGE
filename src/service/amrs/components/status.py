@@ -4,9 +4,12 @@ import math
 import random
 import time
 import uuid
+from enum import IntEnum
 from typing import List
 
+import httpx
 import websockets
+from pydantic import BaseModel
 from reactivex import Subject
 from reactivex.abc import DisposableBase
 from reactivex.subject import BehaviorSubject
@@ -21,6 +24,7 @@ from src.service.rabbitmq.transaction_wrapper import (
     Send_Pose,
     base_transaction_res,
 )
+from src.service.webService.httpx_set import headers
 from src.types.amr import AMR_INFO, BatteryInfo, IOInfo
 from src.types.rabbitmq import PUBLISH_OPTIONS
 from src.types.ros import (
@@ -40,6 +44,28 @@ JOYSTICK_MAX_ANGULAR_Z = 0.5
 JOYSTICK_TOKEN_TIMEOUT = 2.0
 # MiR robotState value (test use 11) that puts the robot into joystick control mode
 JOYSTICK_ROBOT_STATE = 11
+
+
+class State_Payload(BaseModel):
+    state_id: int
+
+
+class StopType(IntEnum):
+    DEFAULT = 0  # 可繼續動作
+    FINISH_CURRENT_ACTION_THEN_PAUSE = 1  # 做完現在動作後停止
+    PAUSE_IMMEDIATELY = 2  # 立刻停止
+
+
+class PauseBody(BaseModel):
+    StopType: StopType
+
+
+class PausePayload(BaseModel):
+    Id: str  # 傳送此指令的唯一值
+    Action: str  # 若已有 Action Enum，可改成 Action
+    Time: int  # 時間戳記
+    Device: str  # 傳送對象 ID
+    Body: PauseBody
 
 
 class Status:
@@ -93,6 +119,15 @@ class Status:
                     message=base_transaction_res(action=action, return_code='200'),
                 )
             )
+        if payload['cmd_id'] == CMD_ID.EMERGENCY_STOP.value:
+            try:
+                data = PausePayload.model_validate_json(payload['payload'])
+                state = data.Body.StopType.value
+                asyncio.create_task(self.reset_work_status(status=state))
+            except Exception as e:
+                logger.bind(title=self.amr_info.amrId).error(
+                    f'emergency stop payload parse failed: {e}'
+                )
         if payload['cmd_id'] == CMD_ID.JOYSTICK.value:
             asyncio.create_task(self.send_joystick_command(payload['x'], payload['y']))
 
@@ -313,6 +348,19 @@ class Status:
         }
 
         await self.ws.send(json.dumps(msg))
+
+    async def reset_work_status(self, status: int):
+        if not self.amr_info.connect_w_amr:
+            return
+        url = f'http://{self.amr_info.ip}/api/v2.0.0/status'
+        try:
+            async with httpx.AsyncClient() as client:
+                payload = State_Payload(state_id=(4 if status == 2 else 3))
+                res = await client.put(
+                    url=url, json=payload.model_dump(), headers=headers, timeout=3
+                )
+        except (httpx.HTTPStatusError, Exception) as e:
+            print(e)
 
     async def send_joystick_command(self, x: float, y: float):
         if self.ws is None:
