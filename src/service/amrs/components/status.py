@@ -297,7 +297,7 @@ class Status:
                 options.expiration = 2
                 await self.rb.req_publish(
                     exchange_name=IO_EX,
-                    routing_key=f"amr.io.{self.amr_info.amrId}.readyToSendMcCmd",
+                    routing_key=f"amr.io.{self.amr_info.amrId}.ready_to_joystick_cmd",
                     amr_info=self.amr_info,
                     message=ready_msg,
                     options=options,
