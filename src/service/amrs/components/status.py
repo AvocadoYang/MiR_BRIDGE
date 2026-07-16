@@ -230,7 +230,6 @@ class Status:
 
             if topic == '/robot_status':
                 status_msg_data: RobotStatus = payload.get('msg')
-
                 self.robot_state_text = status_msg_data['state_text']
                 self.robot_joystick_web_session_id = status_msg_data.get(
                     'joystick_web_session_id', ''

@@ -249,3 +249,21 @@ async def async_map(request: Request):
         except (httpx.HTTPStatusError, Exception):
             raise ExternalServiceError(service=item['ip'])
     return res
+
+
+"""
+map upload api
+[POST] /maps
+payload:
+{
+  "guid": "string",
+  "session_id": "string",
+  "name": "string",
+  "base_map": "string",
+  "resolution": 0,
+  "origin_x": 0,
+  "origin_y": 0,
+  "origin_theta": 0,
+  "created_by_id": "string"
+}
+"""

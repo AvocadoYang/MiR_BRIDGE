@@ -157,6 +157,7 @@ class AMR:
                     response = await client.post(url=url, headers=headers, timeout=2)
                     valid_data = InfoSchema(**response.json())
                     self.mir_token = valid_data.token
+
                     self.user_uuid = valid_data.user_id
                     self.got_mir_token = True
                     self.show_get_mir_token_error_log = True

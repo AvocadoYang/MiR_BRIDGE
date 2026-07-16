@@ -16,7 +16,6 @@ def api_token_gen():
 
 
 api_token = api_token_gen()
-
 headers = {
     'Authorization': api_token,
     'Accept-Language': 'en-US',
