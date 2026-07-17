@@ -26,7 +26,7 @@ from src.service.rabbitmq.transaction_wrapper import (
     base_transaction_res,
 )
 from src.service.webService.httpx_set import headers
-from src.types.amr import AMR_INFO, BatteryInfo, IOInfo
+from src.types.amr import AMR_INFO, BatteryInfo, IOInfo, Twist
 from src.types.rabbitmq import PUBLISH_OPTIONS
 from src.types.ros import (
     CallService,
@@ -279,11 +279,14 @@ class Status:
                 )
 
                 velocity = status_msg_data["velocity"]
-                io = IOInfo(
-                    battery_info=battery_info,
-                    linear_x=velocity["linear"],
-                    angular_z=velocity["angular"],
+                twist = Twist(
+                    set_linear_x=velocity["linear"],
+                    set_angular_z=velocity["angular"],
+                    odom_linear_x=velocity["linear"],
+                    odom_angular_z=velocity["angular"],
                 )
+
+                io = IOInfo(battery_info=battery_info, twist=twist)
 
                 io_info = Send_IO_INFO(io=io.model_dump_json())
                 await self.rb.req_publish(
