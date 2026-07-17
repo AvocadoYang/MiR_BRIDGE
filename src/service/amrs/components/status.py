@@ -94,10 +94,9 @@ class Status:
         self.joystick_token_ready = asyncio.Event()
         self.joystick_token_lock = asyncio.Lock()
         self.web_session_id: str | None = None
-
-        # 從 /robot_status 訂閱的最新資料，主要用來判斷 joystick 是否 available 以及是否被其他人使用
         self.robot_state_text: str = ""
         self.robot_joystick_web_session_id: str = ""
+        self.manual_control_ready: bool = False
 
         self.subs: List[DisposableBase] = [
             control_transaction_sub_.subscribe(self.action_processor)
@@ -198,6 +197,7 @@ class Status:
             self.web_session_id = None
             self.robot_state_text = ""
             self.robot_joystick_web_session_id = ""
+            self.manual_control_ready = False
             self.mir_service_connect_status.on_next(False)
             await asyncio.sleep(3)
 
@@ -332,9 +332,9 @@ class Status:
                     joystick_available=joystick_available,
                     status_text=self.robot_state_text,
                 )
-
                 options = PUBLISH_OPTIONS()
                 options.expiration = 2
+
                 await self.rb.req_publish(
                     exchange_name=IO_EX,
                     routing_key=f"amr.io.{self.amr_info.amrId}.ready_to_joystick_cmd",
@@ -343,13 +343,25 @@ class Status:
                     options=options,
                 )
 
+                manual_control_ready = (
+                    joystick_available and self.robot_state_text == "ManualControl"
+                )
+                if manual_control_ready and not self.manual_control_ready:
+                    logger.bind(title=self.amr_info.amrId).info(
+                        "joystick is available and robot is in ManualControl state"
+                    )
+                self.manual_control_ready = manual_control_ready
+
             if payload.get("op") == "service_response":
                 values = payload.get("values") or {}
                 if "joystick_token" in values:
                     token = values["joystick_token"]
-                    # 空字串代表機器人明確拒絕(忙碌中)，存成 None 但仍叫醒 waiter，
-                    # 讓 send_joystick_command 立刻分辨忙碌、不必等滿 timeout
                     self.joystick_token = token or None
+                    if self.joystick_token:
+                        logger.bind(title=self.amr_info.amrId).info(
+                            "joystick control acquired, "
+                            f"web_session_id={self.web_session_id}"
+                        )
                     self.joystick_token_ready.set()
 
             else:
