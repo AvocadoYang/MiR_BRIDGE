@@ -354,17 +354,18 @@ class Status:
                 if joystick_available:
                     unavailable_reason = None
                 elif joystick_owned_by_others:
-                    unavailable_reason = "JOYSTICK_OWNED_BY_OTHERS"
-                elif not self.robot_joystick_web_session_id:
-                    unavailable_reason = "NO_JOYSTICK_OWNERSHIP"
+                    unavailable_reason = "joystick own by others"
                 elif not self.in_manual_mode:
-                    unavailable_reason = "TURN_ON_MANUAL_MODE"
+                    unavailable_reason = "turn on manual mode"
                 elif self.manual_break_release_switch:
-                    unavailable_reason = "TURN_OFF_MANUAL_BREAK_SWITCH"
+                    unavailable_reason = "turn off manual break"
                 elif self.is_reset_allowed:
-                    unavailable_reason = "PRESS_THE_RESUME_BUTTOM"
+                    unavailable_reason = "press the resume button"
+                elif not self.robot_joystick_web_session_id:
+                    # 推搖桿會自動取得控制權
+                    unavailable_reason = "no joystick ownership"
                 elif self.in_protective_stop:
-                    unavailable_reason = "ROBOT_IS_IN_PROTECTIVE_STOP"
+                    unavailable_reason = "robot is in protective stop"
                 else:
                     unavailable_reason = None
 
