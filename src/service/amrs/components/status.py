@@ -26,7 +26,7 @@ from src.service.rabbitmq.transaction_wrapper import (
     base_transaction_res,
 )
 from src.service.webService.httpx_set import headers
-from src.types.amr import AMR_INFO, BatteryInfo, IOInfo
+from src.types.amr import AMR_INFO, BatteryInfo, IOInfo, Twist
 from src.types.rabbitmq import PUBLISH_OPTIONS
 from src.types.ros import (
     CallService,
@@ -92,10 +92,9 @@ class Status:
         self.joystick_token_ready = asyncio.Event()
         self.joystick_token_lock = asyncio.Lock()
         self.web_session_id: str | None = None
-
-        # 從 /robot_status 訂閱的最新資料，主要用來判斷 joystick 是否 available 以及是否被其他人使用
         self.robot_state_text: str = ''
         self.robot_joystick_web_session_id: str = ''
+        self.manual_control_ready: bool = False
 
         self.subs: List[DisposableBase] = [
             control_transaction_sub_.subscribe(self.action_processor)
@@ -196,6 +195,7 @@ class Status:
             self.web_session_id = None
             self.robot_state_text = ''
             self.robot_joystick_web_session_id = ''
+            self.manual_control_ready = False
             self.mir_service_connect_status.on_next(False)
             await asyncio.sleep(3)
 
@@ -230,12 +230,13 @@ class Status:
 
             if topic == '/robot_status':
                 status_msg_data: RobotStatus = payload.get('msg')
+
                 self.robot_state_text = status_msg_data['state_text']
                 self.robot_joystick_web_session_id = status_msg_data.get(
                     'joystick_web_session_id', ''
                 )
 
-                if self.joystick_token is not None and not self.robot_joystick_web_session_id:
+                if self.joystick_token and not self.robot_joystick_web_session_id:
                     logger.bind(title=self.amr_info.amrId).info(
                         'joystick session expired on robot side, '
                         'will re-register on next joystick command'
@@ -275,7 +276,15 @@ class Status:
                     write_battery_info_time=status_msg_data['battery_time_remaining'],
                 )
 
-                io = IOInfo(battery_info=battery_info)
+                velocity = status_msg_data['velocity']
+                twist = Twist(
+                    set_linear_x=velocity['linear'],
+                    set_angular_z=velocity['angular'],
+                    odom_linear_x=velocity['linear'],
+                    odom_angular_z=velocity['angular'],
+                )
+
+                io = IOInfo(battery_info=battery_info, twist=twist)
 
                 io_info = Send_IO_INFO(io=io.model_dump_json())
                 await self.rb.req_publish(
@@ -319,9 +328,9 @@ class Status:
                     joystick_available=joystick_available,
                     status_text=self.robot_state_text,
                 )
-
                 options = PUBLISH_OPTIONS()
                 options.expiration = 2
+
                 await self.rb.req_publish(
                     exchange_name=IO_EX,
                     routing_key=f'amr.io.{self.amr_info.amrId}.ready_to_joystick_cmd',
@@ -330,10 +339,24 @@ class Status:
                     options=options,
                 )
 
+                manual_control_ready = (
+                    joystick_available and self.robot_state_text == 'ManualControl'
+                )
+                if manual_control_ready and not self.manual_control_ready:
+                    logger.bind(title=self.amr_info.amrId).info(
+                        'joystick is available and robot is in ManualControl state'
+                    )
+                self.manual_control_ready = manual_control_ready
+
             if payload.get('op') == 'service_response':
                 values = payload.get('values') or {}
                 if 'joystick_token' in values:
-                    self.joystick_token = values['joystick_token']
+                    token = values['joystick_token']
+                    self.joystick_token = token or None
+                    if self.joystick_token:
+                        logger.bind(title=self.amr_info.amrId).info(
+                            f'joystick control acquired, web_session_id={self.web_session_id}'
+                        )
                     self.joystick_token_ready.set()
 
             else:
@@ -387,11 +410,11 @@ class Status:
         if self.ws is None:
             return
 
-        if self.joystick_token is None:
+        if not self.joystick_token:
             async with self.joystick_token_lock:
                 # re-check after acquiring the lock: another concurrent call may have
                 # already fetched the token while we were waiting for it
-                if self.joystick_token is None:
+                if not self.joystick_token:
                     if self.web_session_id is None:
                         self.web_session_id = self._generate_web_session_id()
 
@@ -415,13 +438,13 @@ class Status:
                         )
                     except asyncio.TimeoutError:
                         logger.bind(title=self.amr_info.amrId).warning(
-                            'joystick token not received in time, dropping joystick command'
+                            'no service_response within timeout, dropping joystick command'
                         )
                         return
 
-        if self.joystick_token is None:
+        if not self.joystick_token:
             logger.bind(title=self.amr_info.amrId).warning(
-                'joystick token still not available, dropping joystick command'
+                'robot returned empty token (busy / not available), dropping joystick command'
             )
             return
 
@@ -442,8 +465,6 @@ class Status:
             },
             'latch': False,
         }
-
-        print(f'send_joystick_command: {msg}')
 
         await self.ws.send(json.dumps(msg))
 
