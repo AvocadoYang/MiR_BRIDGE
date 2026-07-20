@@ -60,7 +60,7 @@ class Send_Ready_To_Joystick_Cmd(BaseModel):
     unavailable_reason: (
         Literal[
             "joystick own by others",
-            "no joystick ownership",
+            "move joystick to own joystick ownership",
             "turn on manual mode",
             "turn off manual break",
             "press the resume button",

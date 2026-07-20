@@ -363,7 +363,7 @@ class Status:
                     unavailable_reason = "press the resume button"
                 elif not self.robot_joystick_web_session_id:
                     # 推搖桿會自動取得控制權
-                    unavailable_reason = "no joystick ownership"
+                    unavailable_reason = "move joystick to own joystick ownership"
                 elif self.in_protective_stop:
                     unavailable_reason = "robot is in protective stop"
                 else:
