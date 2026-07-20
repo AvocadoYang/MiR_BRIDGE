@@ -58,7 +58,15 @@ class Send_Ready_To_Joystick_Cmd(BaseModel):
     joystick_available: bool
     status_text: str
     unavailable_reason: (
-        Literal["JOYSTICK_OWNED_BY_OTHERS", "NO_JOYSTICK_OWNERSHIP"] | None
+        Literal[
+            "JOYSTICK_OWNED_BY_OTHERS",
+            "NO_JOYSTICK_OWNERSHIP",
+            "TURN_ON_MANUAL_MODE",
+            "TURN_OFF_MANUAL_BREAK_SWITCH",
+            "PRESS_THE_RESUME_BUTTOM",
+            "ROBOT_IS_IN_PROTECTIVE_STOP",
+        ]
+        | None
     ) = None
 
 

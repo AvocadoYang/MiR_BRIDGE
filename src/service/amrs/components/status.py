@@ -35,6 +35,7 @@ from src.types.ros import (
     PublishMessage,
     Quaternion,
     RobotStatus,
+    SafetyStatus,
     TFMessage,
 )
 
@@ -98,6 +99,12 @@ class Status:
         self.robot_joystick_web_session_id: str = ""
         self.manual_control_ready: bool = False
 
+        # /safety_status 快取；預設為「無異常」避免收到資料前誤報 reason
+        self.in_protective_stop: bool = False
+        self.in_manual_mode: bool = True
+        self.manual_break_release_switch: bool = False
+        self.is_reset_allowed: bool = False
+
         self.subs: List[DisposableBase] = [
             control_transaction_sub_.subscribe(self.action_processor)
         ]
@@ -160,6 +167,7 @@ class Status:
                         # '/tf',
                         "/mirwebapp/laser_map_pointcloud",
                         "/robot_status",
+                        "/safety_status",
                         "/PB/ready_to_send_mc_cmd",
                     ]
 
@@ -198,6 +206,10 @@ class Status:
             self.robot_state_text = ""
             self.robot_joystick_web_session_id = ""
             self.manual_control_ready = False
+            self.in_protective_stop = False
+            self.in_manual_mode = True
+            self.manual_break_release_switch = False
+            self.is_reset_allowed = False
             self.mir_service_connect_status.on_next(False)
             await asyncio.sleep(3)
 
@@ -320,6 +332,14 @@ class Status:
                 # )
                 return
 
+            if topic == "/safety_status":
+                safety: SafetyStatus = payload.get("msg")
+                self.in_protective_stop = safety["in_protective_stop"]
+                self.in_manual_mode = safety["in_manual_mode"]
+                self.manual_break_release_switch = safety["manual_break_release_switch"]
+                self.is_reset_allowed = safety["is_reset_allowed"]
+                return
+
             if topic == "/PB/ready_to_send_mc_cmd":
                 ready_msg_data = payload.get("msg")["data"]
                 joystick_owned_by_others = bool(
@@ -329,12 +349,22 @@ class Status:
                     bool(ready_msg_data) and not joystick_owned_by_others
                 )
 
+                # protective stop 幾乎在所有阻擋狀態都成立，
+                # 區辨度低，故放最後當 fallback，先回更具體、可操作的原因。
                 if joystick_available:
                     unavailable_reason = None
                 elif joystick_owned_by_others:
                     unavailable_reason = "JOYSTICK_OWNED_BY_OTHERS"
                 elif not self.robot_joystick_web_session_id:
                     unavailable_reason = "NO_JOYSTICK_OWNERSHIP"
+                elif not self.in_manual_mode:
+                    unavailable_reason = "TURN_ON_MANUAL_MODE"
+                elif self.manual_break_release_switch:
+                    unavailable_reason = "TURN_OFF_MANUAL_BREAK_SWITCH"
+                elif self.is_reset_allowed:
+                    unavailable_reason = "PRESS_THE_RESUME_BUTTOM"
+                elif self.in_protective_stop:
+                    unavailable_reason = "ROBOT_IS_IN_PROTECTIVE_STOP"
                 else:
                     unavailable_reason = None
 
