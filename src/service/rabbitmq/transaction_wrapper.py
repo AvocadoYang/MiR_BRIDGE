@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Literal, Union
 
 from pydantic import BaseModel
 
@@ -57,6 +57,9 @@ class Send_Ready_To_Joystick_Cmd(BaseModel):
     cmd_id: str = CMD_ID.UPDATE_READY_TO_JOYSTICK_CMD.value
     joystick_available: bool
     status_text: str
+    unavailable_reason: (
+        Literal["JOYSTICK_OWNED_BY_OTHERS", "NO_JOYSTICK_OWNERSHIP"] | None
+    ) = None
 
 
 def send_error_info(error_info: Error_Info):

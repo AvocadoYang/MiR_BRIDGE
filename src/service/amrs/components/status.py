@@ -328,9 +328,20 @@ class Status:
                 joystick_available = (
                     bool(ready_msg_data) and not joystick_owned_by_others
                 )
+
+                if joystick_available:
+                    unavailable_reason = None
+                elif joystick_owned_by_others:
+                    unavailable_reason = "JOYSTICK_OWNED_BY_OTHERS"
+                elif not self.robot_joystick_web_session_id:
+                    unavailable_reason = "NO_JOYSTICK_OWNERSHIP"
+                else:
+                    unavailable_reason = None
+
                 ready_msg = Send_Ready_To_Joystick_Cmd(
                     joystick_available=joystick_available,
                     status_text=self.robot_state_text,
+                    unavailable_reason=unavailable_reason,
                 )
                 options = PUBLISH_OPTIONS()
                 options.expiration = 2
@@ -417,8 +428,6 @@ class Status:
 
         if not self.joystick_token:
             async with self.joystick_token_lock:
-                # re-check after acquiring the lock: another concurrent call may have
-                # already fetched the token while we were waiting for it
                 if not self.joystick_token:
                     if self.web_session_id is None:
                         self.web_session_id = self._generate_web_session_id()
