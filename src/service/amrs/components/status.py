@@ -39,13 +39,12 @@ from src.types.ros import (
     TFMessage,
 )
 
-# max speed applied when converting joystick x/y (-100..100) to linear/angular velocity
-# TODO: tune against real robot behavior
 JOYSTICK_MAX_LINEAR_X = 0.8
 JOYSTICK_MAX_ANGULAR_Z = 0.5
 JOYSTICK_TOKEN_TIMEOUT = 2.0
-# MiR robotState value (test use 11) that puts the robot into joystick control mode
+# MiR robotState value (test use 11)
 JOYSTICK_ROBOT_STATE = 11
+MIRWEBAPP_STREAM_KEEPALIVE = 3.0
 
 
 class State_Payload(BaseModel):
@@ -90,7 +89,7 @@ class Status:
         self.rb = rabbit_service
 
         self.amr_status_signal: Subject[str] = Subject()
-
+        # robot joystick control status
         self.joystick_token: str | None = None
         self.joystick_token_ready = asyncio.Event()
         self.joystick_token_lock = asyncio.Lock()
@@ -98,8 +97,7 @@ class Status:
         self.robot_state_text: str = ""
         self.robot_joystick_web_session_id: str = ""
         self.manual_control_ready: bool = False
-
-        # /safety_status 快取；預設為「無異常」避免收到資料前誤報 reason
+        # robot safety status
         self.in_protective_stop: bool = False
         self.in_manual_mode: bool = True
         self.manual_break_release_switch: bool = False
@@ -182,13 +180,19 @@ class Status:
                     # await self.get_mir_amr_map_resource()
 
                     self.mir_service_connect_status.on_next(True)
-                    async for message in websocket:
-                        if isinstance(message, bytes):
-                            message_str = message.decode("utf-8")
-                        else:
-                            message_str = message
+                    keepalive_task = asyncio.create_task(
+                        self._mirwebapp_stream_keepalive(websocket)
+                    )
+                    try:
+                        async for message in websocket:
+                            if isinstance(message, bytes):
+                                message_str = message.decode("utf-8")
+                            else:
+                                message_str = message
 
-                        await self._handle_ros_message(message_str)
+                            await self._handle_ros_message(message_str)
+                    finally:
+                        keepalive_task.cancel()
 
             except websockets.ConnectionClosed as e:
                 logger.bind(title=self.amr_info.amrId).warning(
@@ -213,6 +217,24 @@ class Status:
             self.mir_service_connect_status.on_next(False)
             await asyncio.sleep(3)
 
+    async def _mirwebapp_stream_keepalive(self, websocket):
+        while True:
+            try:
+                cmd_msg: CallService = {
+                    "op": "call_service",
+                    "id": f"call_service:/mirwebapp/command:{uuid.uuid4()}",
+                    "service": "/mirwebapp/command",
+                    "type": "mirWebApp/Command",
+                    "args": {"cmd": "cont:5"},
+                }
+                await websocket.send(json.dumps(cmd_msg))
+            except Exception as e:
+                logger.bind(title=self.amr_info.amrId).warning(
+                    f"mirwebapp stream keepalive failed: {e}"
+                )
+                return
+            await asyncio.sleep(MIRWEBAPP_STREAM_KEEPALIVE)
+
     async def _handle_ros_message(self, raw_message: str):
         """
         parse ROS Bridge message to JSON formate
@@ -232,6 +254,7 @@ class Status:
                     data=point_cloud["data"],
                     is_dense=point_cloud["is_dense"],
                 )
+
                 options = PUBLISH_OPTIONS()
                 options.expiration = 2
                 await self.rb.req_publish(
