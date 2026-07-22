@@ -154,8 +154,8 @@ class Status:
                 async with websockets.connect(
                     url,
                     additional_headers=cookie_header,
-                    ping_interval=1.5,
-                    ping_timeout=1.5,
+                    ping_interval=10,
+                    ping_timeout=30,
                 ) as websocket:
                     self.ws = websocket
 
