@@ -205,21 +205,53 @@ async def get_all_groups(request: Request):
     return res
 
 
+def _resolve_target_MiRs(
+    register_table: dict[str, REGISTER_TABLE], serialNum: Union[str, None]
+) -> List[REGISTER_TABLE]:
+    """Pick which connected AMRs a read endpoint should query.
+
+    Without serialNum: every connected AMR (fleet-wide aggregate — the existing
+    behaviour). With serialNum: exactly that one AMR, so QAMS can read back a
+    single vehicle for per-vehicle reported refresh / strong verification; an
+    unknown or offline serialNum raises so QAMS fails loud instead of silently
+    reading an empty fleet.
+    """
+    if serialNum is None:
+        return [
+            item
+            for item in register_table.values()
+            if item["amr"] is not None
+            and item["amr"].connect_status["mir_service_is_connect"]
+        ]
+
+    for item in register_table.values():
+        if item["serialNum"] == serialNum:
+            amr = item["amr"]
+            if amr is None or not amr.connect_status["mir_service_is_connect"]:
+                raise ExternalServiceError(
+                    service=serialNum,
+                    message=f"target AMR {serialNum} is offline",
+                )
+            return [item]
+
+    raise ExternalServiceError(
+        service=serialNum,
+        message=f"target AMR {serialNum} is not registered",
+    )
+
+
 @router.get("/sync_map", response_model=List[MapListItem])
-async def sync_map_list(request: Request):
+async def sync_map_list(request: Request, serialNum: Union[str, None] = None):
     res: List[MapListItem] = []
     register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+    targets = _resolve_target_MiRs(register_table, serialNum)
 
     class MapListSchema(RootModel[List[MapListItem]]):
         pass
 
     seen_ids: set[str] = set()
 
-    for item in list(register_table.values()):
-        if item["amr"] is None:
-            continue
-        if not item["amr"].connect_status["mir_service_is_connect"]:
-            continue
+    for item in targets:
         try:
             url = f'http://{item["ip"]}/api/v2.0.0/maps'
             async with httpx.AsyncClient() as client:
@@ -231,22 +263,26 @@ async def sync_map_list(request: Request):
                     seen_ids.add(map_item.guid)
                     res.append(map_item)
             logger.bind(state="[GET]").info(f'{item["amrId"]} return map list')
-        except (httpx.HTTPStatusError, Exception):
-            # network/parse failure against this AMR, fall through to the next
+        except (httpx.HTTPStatusError, Exception) as e:
+            # a specific vehicle was requested: fail loud so QAMS does not read
+            # an error as "this vehicle holds no maps"
+            if serialNum is not None:
+                raise ExternalServiceError(
+                    service=serialNum,
+                    message=f"failed to read maps from {serialNum}: {e}",
+                )
+            # fleet aggregate: skip this AMR and keep going
             continue
 
     return res
 
 
 @router.get("/sync_map/{guid}", response_model=Maps)
-async def sync_map(request: Request, guid: str):
+async def sync_map(request: Request, guid: str, serialNum: Union[str, None] = None):
     register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+    targets = _resolve_target_MiRs(register_table, serialNum)
 
-    for item in list(register_table.values()):
-        if item["amr"] is None:
-            continue
-        if not item["amr"].connect_status["mir_service_is_connect"]:
-            continue
+    for item in targets:
         try:
             async with httpx.AsyncClient() as client:
                 get_map_info_url = f'http://{item["ip"]}/api/v2.0.0/maps/{guid}'
@@ -282,10 +318,19 @@ async def sync_map(request: Request, guid: str):
             raise ValidationError(
                 message=f'msg: {e.errors()[0]["msg"]}, input: {e.errors()[0]["input"]}'
             )
-        except (httpx.HTTPStatusError, Exception):
-            # network/parse failure against this AMR, fall through to the next
+        except (httpx.HTTPStatusError, Exception) as e:
+            # a specific vehicle was requested: fail loud so QAMS does not read
+            # an error as "this vehicle does not hold the map"
+            if serialNum is not None:
+                raise ExternalServiceError(
+                    service=serialNum,
+                    message=f"failed to read map {guid} from {serialNum}: {e}",
+                )
+            # fleet aggregate: fall through to the next AMR
             continue
 
+    if serialNum is not None:
+        raise NotFoundError(message=f"map {guid} not found on AMR {serialNum}")
     raise NotFoundError(message=f"map {guid} not found on any connected AMR")
 
 
