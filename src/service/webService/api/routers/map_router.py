@@ -10,7 +10,12 @@ from src.types.amr import REGISTER_TABLE
 from src.types.map import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
 from src.types.web import ALL_Groups, Maps
 
-from ...handler import CustomSuccessRoute, NotFoundError, ValidationError
+from ...handler import (
+    CustomSuccessRoute,
+    ExternalServiceError,
+    NotFoundError,
+    ValidationError,
+)
 from ...httpx_set import headers
 
 router = APIRouter(prefix="/map", route_class=CustomSuccessRoute)
@@ -284,19 +289,121 @@ async def sync_map(request: Request, guid: str):
     raise NotFoundError(message=f"map {guid} not found on any connected AMR")
 
 
-"""
-map upload api
-[POST] /maps
-payload:
-{
-  "guid": "string",
-  "session_id": "string",
-  "name": "string",
-  "base_map": "string",
-  "resolution": 0,
-  "origin_x": 0,
-  "origin_y": 0,
-  "origin_theta": 0,
-  "created_by_id": "string"
-}
-"""
+class MapPush(BaseModel):
+    serialNum: str
+    guid: str
+    session_id: str
+    name: str
+    base_map: str
+    resolution: float
+    origin_x: float
+    origin_y: float
+    origin_theta: float = 0
+    # optional group name, used only when the target robot is missing the
+    # session and Bridge has to create it; falls back to session_id.
+    group_name: Union[str, None] = None
+
+
+class MapUpload(BaseModel):
+    guid: str
+    session_id: str
+    name: str
+    base_map: str
+    resolution: float
+    origin_x: float
+    origin_y: float
+    origin_theta: float
+    created_by_id: str
+
+
+@router.post("/push")
+async def push_map(request: Request, payload: MapPush):
+    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+
+    target: Union[REGISTER_TABLE, None] = None
+    for item in register_table.values():
+        if item["serialNum"] == payload.serialNum:
+            target = item
+            break
+
+    if target is None:
+        raise ExternalServiceError(
+            service=payload.serialNum,
+            message=f"target AMR {payload.serialNum} is not registered",
+        )
+
+    amr = target["amr"]
+    if amr is None or not amr.connect_status["mir_service_is_connect"]:
+        raise ExternalServiceError(
+            service=payload.serialNum,
+            message=f"target AMR {payload.serialNum} is offline",
+        )
+
+    ip = target["ip"]
+    base = f"http://{ip}/api/v2.0.0"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            session_res = await client.get(
+                url=f"{base}/sessions/{payload.session_id}", headers=headers, timeout=3
+            )
+            if "error_code" in session_res.json():
+                await client.post(
+                    url=f"{base}/sessions",
+                    headers=headers,
+                    json={
+                        "guid": payload.session_id,
+                        "name": payload.group_name or payload.session_id,
+                    },
+                    timeout=3,
+                )
+
+            map_res = await client.get(
+                url=f"{base}/maps/{payload.guid}", headers=headers, timeout=3
+            )
+            exists = "error_code" not in map_res.json()
+
+            upload = MapUpload(
+                guid=payload.guid,
+                session_id=payload.session_id,
+                name=payload.name,
+                base_map=payload.base_map,
+                resolution=payload.resolution,
+                origin_x=payload.origin_x,
+                origin_y=payload.origin_y,
+                origin_theta=payload.origin_theta,
+                created_by_id=amr.user_uuid,
+            )
+
+            if exists:
+                write_res = await client.put(
+                    url=f"{base}/maps/{payload.guid}",
+                    headers=headers,
+                    json=upload.model_dump(exclude={"guid"}),
+                    timeout=5,
+                )
+                result = "updated"
+            else:
+                write_res = await client.post(
+                    url=f"{base}/maps",
+                    headers=headers,
+                    json=upload.model_dump(),
+                    timeout=5,
+                )
+                result = "created"
+
+            if "error_code" in write_res.json():
+                raise ExternalServiceError(
+                    service=payload.serialNum,
+                    message=f"AMR rejected map {payload.guid}: {write_res.json()}",
+                )
+    except ExternalServiceError:
+        raise
+    except (httpx.HTTPStatusError, Exception) as e:
+        raise ExternalServiceError(
+            service=payload.serialNum,
+            message=f"failed to push map {payload.guid} to {payload.serialNum}: {e}",
+        )
+
+    logger.bind(state="[POST]").info(f'{target["amrId"]} {result} map {payload.guid}')
+    return {"target": payload.serialNum, "guid": payload.guid, "result": result}
