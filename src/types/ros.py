@@ -135,6 +135,30 @@ class RobotStatus(TypedDict):
     mode_key_state: str
 
 
+class SafetyStatus(TypedDict):
+    is_connected: bool
+    is_firmware_ok: bool
+    firmware_version: int
+    in_protective_stop: bool
+    in_emergency_stop: bool
+    sto_feedback: bool
+    is_restart_required: bool
+    is_safety_muted: bool
+    max_lin_speed: float
+    max_rot_speed: float
+    mute_mask: int
+    partial_mute_mask: int
+    is_limited_speed_active: bool
+    is_lifter_down: bool
+    in_sleep_mode: bool
+    in_manual_mode: bool
+    is_manual_mode_restart_required: bool
+    manual_break_release_switch: bool
+    is_reset_allowed: bool
+    plc_creep_speed: bool
+    hold_to_run: bool
+
+
 ### PointCloud
 
 

@@ -35,16 +35,16 @@ from src.types.ros import (
     PublishMessage,
     Quaternion,
     RobotStatus,
+    SafetyStatus,
     TFMessage,
 )
 
-# max speed applied when converting joystick x/y (-100..100) to linear/angular velocity
-# TODO: tune against real robot behavior
 JOYSTICK_MAX_LINEAR_X = 0.8
 JOYSTICK_MAX_ANGULAR_Z = 0.5
 JOYSTICK_TOKEN_TIMEOUT = 2.0
-# MiR robotState value (test use 11) that puts the robot into joystick control mode
+# MiR robotState value (test use 11)
 JOYSTICK_ROBOT_STATE = 11
+MIRWEBAPP_STREAM_KEEPALIVE = 3.0
 
 
 class State_Payload(BaseModel):
@@ -87,7 +87,7 @@ class Status:
         self.rb = rabbit_service
 
         self.amr_status_signal: Subject[str] = Subject()
-
+        # robot joystick control status
         self.joystick_token: str | None = None
         self.joystick_token_ready = asyncio.Event()
         self.joystick_token_lock = asyncio.Lock()
@@ -95,6 +95,11 @@ class Status:
         self.robot_state_text: str = ''
         self.robot_joystick_web_session_id: str = ''
         self.manual_control_ready: bool = False
+        # robot safety status
+        self.in_protective_stop: bool = False
+        self.in_manual_mode: bool = True
+        self.manual_break_release_switch: bool = False
+        self.is_reset_allowed: bool = False
 
         self.subs: List[DisposableBase] = [
             control_transaction_sub_.subscribe(self.action_processor)
@@ -149,8 +154,8 @@ class Status:
                 async with websockets.connect(
                     url,
                     additional_headers=cookie_header,
-                    ping_interval=1.5,
-                    ping_timeout=1.5,
+                    ping_interval=10,
+                    ping_timeout=30,
                 ) as websocket:
                     self.ws = websocket
 
@@ -158,6 +163,7 @@ class Status:
                         # '/tf',
                         '/mirwebapp/laser_map_pointcloud',
                         '/robot_status',
+                        '/safety_status',
                         '/PB/ready_to_send_mc_cmd',
                     ]
 
@@ -172,13 +178,19 @@ class Status:
                     # await self.get_mir_amr_map_resource()
 
                     self.mir_service_connect_status.on_next(True)
-                    async for message in websocket:
-                        if isinstance(message, bytes):
-                            message_str = message.decode('utf-8')
-                        else:
-                            message_str = message
+                    keepalive_task = asyncio.create_task(
+                        self._mirwebapp_stream_keepalive(websocket)
+                    )
+                    try:
+                        async for message in websocket:
+                            if isinstance(message, bytes):
+                                message_str = message.decode('utf-8')
+                            else:
+                                message_str = message
 
-                        await self._handle_ros_message(message_str)
+                            await self._handle_ros_message(message_str)
+                    finally:
+                        keepalive_task.cancel()
 
             except websockets.ConnectionClosed as e:
                 logger.bind(title=self.amr_info.amrId).warning(
@@ -196,8 +208,30 @@ class Status:
             self.robot_state_text = ''
             self.robot_joystick_web_session_id = ''
             self.manual_control_ready = False
+            self.in_protective_stop = False
+            self.in_manual_mode = True
+            self.manual_break_release_switch = False
+            self.is_reset_allowed = False
             self.mir_service_connect_status.on_next(False)
             await asyncio.sleep(3)
+
+    async def _mirwebapp_stream_keepalive(self, websocket):
+        while True:
+            try:
+                cmd_msg: CallService = {
+                    'op': 'call_service',
+                    'id': f'call_service:/mirwebapp/command:{uuid.uuid4()}',
+                    'service': '/mirwebapp/command',
+                    'type': 'mirWebApp/Command',
+                    'args': {'cmd': 'cont:5'},
+                }
+                await websocket.send(json.dumps(cmd_msg))
+            except Exception as e:
+                logger.bind(title=self.amr_info.amrId).warning(
+                    f'mirwebapp stream keepalive failed: {e}'
+                )
+                return
+            await asyncio.sleep(MIRWEBAPP_STREAM_KEEPALIVE)
 
     async def _handle_ros_message(self, raw_message: str):
         """
@@ -218,6 +252,7 @@ class Status:
                     data=point_cloud['data'],
                     is_dense=point_cloud['is_dense'],
                 )
+
                 options = PUBLISH_OPTIONS()
                 options.expiration = 2
                 await self.rb.req_publish(
@@ -318,15 +353,45 @@ class Status:
                 # )
                 return
 
+            if topic == '/safety_status':
+                safety: SafetyStatus = payload.get('msg')
+                self.in_protective_stop = safety['in_protective_stop']
+                self.in_manual_mode = safety['in_manual_mode']
+                self.manual_break_release_switch = safety['manual_break_release_switch']
+                self.is_reset_allowed = safety['is_reset_allowed']
+                return
+
             if topic == '/PB/ready_to_send_mc_cmd':
                 ready_msg_data = payload.get('msg')['data']
                 joystick_owned_by_others = bool(self.robot_joystick_web_session_id) and (
                     self.robot_joystick_web_session_id != self.web_session_id
                 )
                 joystick_available = bool(ready_msg_data) and not joystick_owned_by_others
+
+                # protective stop 幾乎在所有阻擋狀態都成立，
+                # 區辨度低，故放最後當 fallback，先回更具體、可操作的原因。
+                if joystick_available:
+                    unavailable_reason = None
+                elif joystick_owned_by_others:
+                    unavailable_reason = 'joystick own by others'
+                elif not self.in_manual_mode:
+                    unavailable_reason = 'turn on manual mode'
+                elif self.manual_break_release_switch:
+                    unavailable_reason = 'turn off manual break'
+                elif self.is_reset_allowed:
+                    unavailable_reason = 'press the resume button'
+                elif not self.robot_joystick_web_session_id:
+                    # 推搖桿會自動取得控制權
+                    unavailable_reason = 'move joystick to own joystick ownership'
+                elif self.in_protective_stop:
+                    unavailable_reason = 'robot is in protective stop'
+                else:
+                    unavailable_reason = None
+
                 ready_msg = Send_Ready_To_Joystick_Cmd(
                     joystick_available=joystick_available,
                     status_text=self.robot_state_text,
+                    unavailable_reason=unavailable_reason,
                 )
                 options = PUBLISH_OPTIONS()
                 options.expiration = 2
@@ -412,8 +477,6 @@ class Status:
 
         if not self.joystick_token:
             async with self.joystick_token_lock:
-                # re-check after acquiring the lock: another concurrent call may have
-                # already fetched the token while we were waiting for it
                 if not self.joystick_token:
                     if self.web_session_id is None:
                         self.web_session_id = self._generate_web_session_id()
