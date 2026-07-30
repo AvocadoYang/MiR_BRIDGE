@@ -10,10 +10,15 @@ from src.types.amr import REGISTER_TABLE
 from src.types.map import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
 from src.types.web import ALL_Groups, Maps
 
-from ...handler import CustomSuccessRoute, ExternalServiceError, ValidationError
+from ...handler import (
+    CustomSuccessRoute,
+    ExternalServiceError,
+    NotFoundError,
+    ValidationError,
+)
 from ...httpx_set import headers
 
-router = APIRouter(prefix='/map', route_class=CustomSuccessRoute)
+router = APIRouter(prefix="/map", route_class=CustomSuccessRoute)
 
 
 class NewPosition(BaseModel):
@@ -49,6 +54,12 @@ class LocationIDs(BaseModel):
     locationIds: List[str]
 
 
+class MapListItem(BaseModel):
+    guid: str
+    url: str
+    name: str
+
+
 class MapDetail(BaseModel):
     guid: str
     session_id: str
@@ -78,15 +89,15 @@ class SessionDetail(BaseModel):
     created_by_name: str
 
 
-@router.post('/add_position')
+@router.post("/add_position")
 async def add_position(request: Request, new_position: Location):
     try:
         register_table: dict[str, REGISTER_TABLE] = request.state.register_table
         async with httpx.AsyncClient() as client:
             for mac_address, info in register_table.items():
-                amr = info['amr']
+                amr = info["amr"]
                 if amr is None:
-                    logger.warning(f'AMR info is missing for MAC: {mac_address}')
+                    logger.warning(f"AMR info is missing for MAC: {mac_address}")
                     continue
                 url = f'http://{info["ip"]}/api/v2.0.0/positions'
                 send_position = NewPosition(
@@ -102,26 +113,28 @@ async def add_position(request: Request, new_position: Location):
                 await client.post(
                     url=url, headers=headers, json=send_position.model_dump(), timeout=3
                 )
-        logger.bind(state='[POST]').info(f'create new position: {new_position.model_dump_json()}')
+        logger.bind(state="[POST]").info(
+            f"create new position: {new_position.model_dump_json()}"
+        )
         return new_position
     except (httpx.HTTPStatusError, Exception) as e:
         print(e)
 
 
-@router.delete('/delete_position')
+@router.delete("/delete_position")
 async def delete_position(request: Request, payload: LocationIDs):
     try:
         register_table: dict[str, REGISTER_TABLE] = request.state.register_table
         async with httpx.AsyncClient() as client:
             for locationId in payload.locationIds:
                 for mac_address, info in register_table.items():
-                    amr = info['amr']
+                    amr = info["amr"]
                     if amr is None:
-                        logger.warning(f'AMR info is missing for MAC: {mac_address}')
+                        logger.warning(f"AMR info is missing for MAC: {mac_address}")
                         continue
                     url = f'http://{info["ip"]}/api/v2.0.0/positions/{locationId}'
                     await client.delete(url=url, headers=headers, timeout=3)
-            logger.bind(state='[POST]').info(f'delete positions: {payload.locationIds}')
+            logger.bind(state="[POST]").info(f"delete positions: {payload.locationIds}")
             return payload.locationIds
 
     except (httpx.HTTPStatusError, Exception) as e:
@@ -129,7 +142,7 @@ async def delete_position(request: Request, payload: LocationIDs):
     return
 
 
-@router.put('/update_position')
+@router.put("/update_position")
 async def update_position():
     pass
 
@@ -138,25 +151,27 @@ class MapUsingFormat(BaseModel):
     map_id: str
 
 
-@router.put('/switch-map')
+@router.put("/switch-map")
 async def change_map_use(request: Request, payload: MapUsingFormat):
     try:
         register_table: dict[str, REGISTER_TABLE] = request.state.register_table
         for mac_address, info in register_table.items():
-            amr = info['amr']
+            amr = info["amr"]
             if amr is not None:
                 if not amr.amr_info.connect_w_amr:
                     continue
             url = f'http://{info["ip"]}/api/v2.0.0/status'
             async with httpx.AsyncClient() as client:
-                res = await client.put(url=url, headers=headers, json=payload.model_dump())
-        logger.bind(state='[PUT]').info(f'switch map to {payload.map_id}')
+                res = await client.put(
+                    url=url, headers=headers, json=payload.model_dump()
+                )
+        logger.bind(state="[PUT]").info(f"switch map to {payload.map_id}")
         return payload.map_id
     except (httpx.HTTPStatusError, Exception) as e:
         print(e)
 
 
-@router.get('/all_groups', response_model=List[ALL_Groups])
+@router.get("/all_groups", response_model=List[ALL_Groups])
 async def get_all_groups(request: Request):
     res: List[ALL_Groups] = []
     register_table: dict[str, REGISTER_TABLE] = request.state.register_table
@@ -181,89 +196,259 @@ async def get_all_groups(request: Request):
                         continue
                     seen_ids.add(session.guid)
                     res.append(ALL_Groups(id=session.guid, name=session.name))
-                logger.bind(state='[GET]').info(f'{item["amrId"]} return all map groups info')
+                logger.bind(state="[GET]").info(
+                    f'{item["amrId"]} return all map groups info'
+                )
         except Exception:
             pass
 
     return res
 
 
-@router.get('/sync_map', response_model=List[Maps])
-async def async_map(request: Request):
-    res: List[Maps] = []
+def _resolve_target_MiRs(
+    register_table: dict[str, REGISTER_TABLE], serialNum: Union[str, None]
+) -> List[REGISTER_TABLE]:
+    """Pick which connected AMRs a read endpoint should query.
+
+    Without serialNum: every connected AMR (fleet-wide aggregate — the existing
+    behaviour). With serialNum: exactly that one AMR, so QAMS can read back a
+    single vehicle for per-vehicle reported refresh / strong verification; an
+    unknown or offline serialNum raises so QAMS fails loud instead of silently
+    reading an empty fleet.
+    """
+    if serialNum is None:
+        return [
+            item
+            for item in register_table.values()
+            if item["amr"] is not None
+            and item["amr"].connect_status["mir_service_is_connect"]
+        ]
+
+    for item in register_table.values():
+        if item["serialNum"] == serialNum:
+            amr = item["amr"]
+            if amr is None or not amr.connect_status["mir_service_is_connect"]:
+                raise ExternalServiceError(
+                    service=serialNum,
+                    message=f"target AMR {serialNum} is offline",
+                )
+            return [item]
+
+    raise ExternalServiceError(
+        service=serialNum,
+        message=f"target AMR {serialNum} is not registered",
+    )
+
+
+@router.get("/sync_map", response_model=List[MapListItem])
+async def sync_map_list(request: Request, serialNum: Union[str, None] = None):
+    res: List[MapListItem] = []
     register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+    targets = _resolve_target_MiRs(register_table, serialNum)
 
-    class Info(BaseModel):
-        url: str
-        guid: str
-        name: str
+    class MapListSchema(RootModel[List[MapListItem]]):
+        pass
 
-    class Map_Info(BaseModel):
-        info: List[Info]
+    seen_ids: set[str] = set()
 
-    for item in list(register_table.values()):
-        if item['amr'] is None:
-            continue
-        if not item['amr'].connect_status['mir_service_is_connect']:
-            continue
+    for item in targets:
         try:
             url = f'http://{item["ip"]}/api/v2.0.0/maps'
             async with httpx.AsyncClient() as client:
                 response = await client.get(url=url, headers=headers, timeout=2)
-                maps = response.json()
-                valid_maps = Map_Info(info=maps)
-                print_map_info = {}
-                if len(valid_maps.info):
-                    for map in valid_maps.info:
-                        get_map_info_url = f'http://{item["ip"]}/api/v2.0.0/maps/{map.guid}'
-                        info_res = await client.get(url=get_map_info_url, headers=headers)
-                        map_detail = info_res.json()
-                        print_map_info[map_detail['name']] = {
-                            'origin_x': map_detail['origin_x'],
-                            'origin_y': map_detail['origin_y'],
-                        }
-                        valid_map_detail = MapDetail(**map_detail)
-                        get_session_info_url = (
-                            f'http://{item["ip"]}/api/v2.0.0/sessions/{valid_map_detail.session_id}'
-                        )
-                        session_res = await client.get(get_session_info_url, headers=headers)
-                        session_info = session_res.json()
-                        valid_session_info = SessionDetail(**session_info)
-                        r: Maps = Maps(
-                            guid=valid_map_detail.guid,  # map id
-                            session_id=valid_map_detail.session_id,  # site id or group id
-                            group_name=valid_session_info.name,
-                            name=valid_map_detail.name,
-                            base_map=valid_map_detail.base_map,
-                            resolution=valid_map_detail.resolution,
-                            origin_x=valid_map_detail.origin_x,
-                            origin_y=valid_map_detail.origin_y,
-                            origin_theta=valid_map_detail.origin_theta,
-                        )
-                        res.append(r)
-            logger.bind(state='[GET]').info(f'{item["amrId"]} return sync maps info')
+                maps = MapListSchema.model_validate(response.json())
+                for map_item in maps.root:
+                    if map_item.guid in seen_ids:
+                        continue
+                    seen_ids.add(map_item.guid)
+                    res.append(map_item)
+            logger.bind(state="[GET]").info(f'{item["amrId"]} return map list')
+        except (httpx.HTTPStatusError, Exception) as e:
+            # a specific vehicle was requested: fail loud so QAMS does not read
+            # an error as "this vehicle holds no maps"
+            if serialNum is not None:
+                raise ExternalServiceError(
+                    service=serialNum,
+                    message=f"failed to read maps from {serialNum}: {e}",
+                )
+            # fleet aggregate: skip this AMR and keep going
+            continue
+
+    return res
+
+
+@router.get("/sync_map/{guid}", response_model=Maps)
+async def sync_map(request: Request, guid: str, serialNum: Union[str, None] = None):
+    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+    targets = _resolve_target_MiRs(register_table, serialNum)
+
+    for item in targets:
+        try:
+            async with httpx.AsyncClient() as client:
+                get_map_info_url = f'http://{item["ip"]}/api/v2.0.0/maps/{guid}'
+                info_res = await client.get(
+                    url=get_map_info_url, headers=headers, timeout=2
+                )
+                map_detail = info_res.json()
+                if "error_code" in map_detail:
+                    # this AMR does not hold the map, try the next one
+                    continue
+                valid_map_detail = MapDetail(**map_detail)
+                get_session_info_url = f'http://{item["ip"]}/api/v2.0.0/sessions/{valid_map_detail.session_id}'
+                session_res = await client.get(
+                    url=get_session_info_url, headers=headers, timeout=2
+                )
+                valid_session_info = SessionDetail(**session_res.json())
+                r: Maps = Maps(
+                    guid=valid_map_detail.guid,  # map id
+                    session_id=valid_map_detail.session_id,  # site id or group id
+                    group_name=valid_session_info.name,
+                    name=valid_map_detail.name,
+                    base_map=valid_map_detail.base_map,
+                    resolution=valid_map_detail.resolution,
+                    origin_x=valid_map_detail.origin_x,
+                    origin_y=valid_map_detail.origin_y,
+                    origin_theta=valid_map_detail.origin_theta,
+                )
+                logger.bind(state="[GET]").info(
+                    f'{item["amrId"]} return sync map {guid}'
+                )
+                return r
         except PydanticValidationError as e:
             raise ValidationError(
                 message=f'msg: {e.errors()[0]["msg"]}, input: {e.errors()[0]["input"]}'
             )
-        except (httpx.HTTPStatusError, Exception):
-            raise ExternalServiceError(service=item['ip'])
-    return res
+        except (httpx.HTTPStatusError, Exception) as e:
+            # a specific vehicle was requested: fail loud so QAMS does not read
+            # an error as "this vehicle does not hold the map"
+            if serialNum is not None:
+                raise ExternalServiceError(
+                    service=serialNum,
+                    message=f"failed to read map {guid} from {serialNum}: {e}",
+                )
+            # fleet aggregate: fall through to the next AMR
+            continue
+
+    if serialNum is not None:
+        raise NotFoundError(message=f"map {guid} not found on AMR {serialNum}")
+    raise NotFoundError(message=f"map {guid} not found on any connected AMR")
 
 
-"""
-map upload api
-[POST] /maps
-payload:
-{
-  "guid": "string",
-  "session_id": "string",
-  "name": "string",
-  "base_map": "string",
-  "resolution": 0,
-  "origin_x": 0,
-  "origin_y": 0,
-  "origin_theta": 0,
-  "created_by_id": "string"
-}
-"""
+class MapPush(BaseModel):
+    serialNum: str
+    guid: str
+    session_id: str
+    name: str
+    base_map: str
+    resolution: float
+    origin_x: float
+    origin_y: float
+    origin_theta: float = 0
+    # optional group name, used only when the target robot is missing the
+    # session and Bridge has to create it; falls back to session_id.
+    group_name: Union[str, None] = None
+
+
+class MapUpload(BaseModel):
+    guid: str
+    session_id: str
+    name: str
+    base_map: str
+    resolution: float
+    origin_x: float
+    origin_y: float
+    origin_theta: float
+    created_by_id: str
+
+
+@router.post("/push")
+async def push_map(request: Request, payload: MapPush):
+    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+
+    target: Union[REGISTER_TABLE, None] = None
+    for item in register_table.values():
+        if item["serialNum"] == payload.serialNum:
+            target = item
+            break
+
+    if target is None:
+        raise ExternalServiceError(
+            service=payload.serialNum,
+            message=f"target AMR {payload.serialNum} is not registered",
+        )
+
+    amr = target["amr"]
+    if amr is None or not amr.connect_status["mir_service_is_connect"]:
+        raise ExternalServiceError(
+            service=payload.serialNum,
+            message=f"target AMR {payload.serialNum} is offline",
+        )
+
+    ip = target["ip"]
+    base = f"http://{ip}/api/v2.0.0"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            session_res = await client.get(
+                url=f"{base}/sessions/{payload.session_id}", headers=headers, timeout=3
+            )
+            if "error_code" in session_res.json():
+                await client.post(
+                    url=f"{base}/sessions",
+                    headers=headers,
+                    json={
+                        "guid": payload.session_id,
+                        "name": payload.group_name or payload.session_id,
+                    },
+                    timeout=3,
+                )
+
+            map_res = await client.get(
+                url=f"{base}/maps/{payload.guid}", headers=headers, timeout=3
+            )
+            exists = "error_code" not in map_res.json()
+
+            upload = MapUpload(
+                guid=payload.guid,
+                session_id=payload.session_id,
+                name=payload.name,
+                base_map=payload.base_map,
+                resolution=payload.resolution,
+                origin_x=payload.origin_x,
+                origin_y=payload.origin_y,
+                origin_theta=payload.origin_theta,
+                created_by_id=amr.user_uuid,
+            )
+
+            if exists:
+                write_res = await client.put(
+                    url=f"{base}/maps/{payload.guid}",
+                    headers=headers,
+                    json=upload.model_dump(exclude={"guid"}),
+                    timeout=5,
+                )
+                result = "updated"
+            else:
+                write_res = await client.post(
+                    url=f"{base}/maps",
+                    headers=headers,
+                    json=upload.model_dump(),
+                    timeout=5,
+                )
+                result = "created"
+
+            if "error_code" in write_res.json():
+                raise ExternalServiceError(
+                    service=payload.serialNum,
+                    message=f"AMR rejected map {payload.guid}: {write_res.json()}",
+                )
+    except ExternalServiceError:
+        raise
+    except (httpx.HTTPStatusError, Exception) as e:
+        raise ExternalServiceError(
+            service=payload.serialNum,
+            message=f"failed to push map {payload.guid} to {payload.serialNum}: {e}",
+        )
+
+    logger.bind(state="[POST]").info(f'{target["amrId"]} {result} map {payload.guid}')
+    return {"target": payload.serialNum, "guid": payload.guid, "result": result}
