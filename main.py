@@ -17,6 +17,7 @@ from src.helper.helper import format_date
 from src.logger import logger
 from src.service import AMR, Rabbit_client_async, WebServer
 from src.types.amr import REGISTER_TABLE
+from src.service.equipment import Elevator_Machine
 
 
 class MiR_BRIDGE:
@@ -152,7 +153,10 @@ if __name__ == '__main__':
         f'{json.dumps(config.model_dump(), indent=2, ensure_ascii=False)} \n',
     )
     logger.opt(raw=True).info(cow_text + '\n')
+    ele = Elevator_Machine(ip='10.0.0.1')
+
     mir_bridge = MiR_BRIDGE()
+
     try:
         while not sync_register_table_success:
             success = mir_bridge.sync_register_table()
