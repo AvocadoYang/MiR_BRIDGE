@@ -25,7 +25,7 @@ from src.service.rabbitmq import (
 )
 from src.service.webService import headers
 from src.types.amr import AMR_INFO, CONNECT_STATUS
-from src.types.map import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
+from src.types.map import Footprint, PeripheralType
 
 from .components import Heartbeat, Mission, Status
 
@@ -434,31 +434,31 @@ class AMR:
                 valid_data = ALL_Location(**locations_res.json())
 
                 ## delete all position in mir
-                url = f'http://{self.amr_info.ip}/api/v2.0.0/positions'
-                positions_response = await client.get(url=url, headers=headers, timeout=3)
-                valid_all_position = ALL_POSITION_SCHEMA(positions_response.json())
-                for position in valid_all_position.root:
-                    delete_url = f'http://{self.amr_info.ip}/api/v2.0.0/positions/{position.guid}'
-                    await client.delete(url=delete_url, headers=headers, timeout=3)
-                if len(valid_data.locations) == 0:
-                    return
+                # url = f'http://{self.amr_info.ip}/api/v2.0.0/positions'
+                # positions_response = await client.get(url=url, headers=headers, timeout=3)
+                # valid_all_position = ALL_POSITION_SCHEMA(positions_response.json())
+                # for position in valid_all_position.root:
+                #     delete_url = f'http://{self.amr_info.ip}/api/v2.0.0/positions/{position.guid}'
+                #     await client.delete(url=delete_url, headers=headers, timeout=3)
+                # if len(valid_data.locations) == 0:
+                #     return
 
-                for location in valid_data.locations:
-                    if location.areaType not in [PeripheralType.CHARGING, PeripheralType.EXTRA]:
-                        continue
-                    new_position = NewPosition(
-                        guid=location.id,
-                        name=location.locationId,
-                        pos_x=location.x,
-                        pos_y=location.y,
-                        orientation=location.rotate,
-                        type_id=PERIPHERAL_TYPE_MAP.get(location.areaType, 0),
-                        map_id=location.map_id,
-                        created_by_id=self.user_uuid,
-                    )
-                    await client.post(
-                        url=url, headers=headers, json=new_position.model_dump(), timeout=3
-                    )
+                # for location in valid_data.locations:
+                #     if location.areaType not in [PeripheralType.CHARGING, PeripheralType.EXTRA]:
+                #         continue
+                #     new_position = NewPosition(
+                #         guid=location.id,
+                #         name=location.locationId,
+                #         pos_x=location.x,
+                #         pos_y=location.y,
+                #         orientation=location.rotate,
+                #         type_id=PERIPHERAL_TYPE_MAP.get(location.areaType, 0),
+                #         map_id=location.map_id,
+                #         created_by_id=self.user_uuid,
+                #     )
+                #     await client.post(
+                #         url=url, headers=headers, json=new_position.model_dump(), timeout=3
+                #     )
             logger.bind(title=self.amr_info.amrId).info('resource sync successful')
 
         except (httpx.HTTPStatusError, Exception) as e:

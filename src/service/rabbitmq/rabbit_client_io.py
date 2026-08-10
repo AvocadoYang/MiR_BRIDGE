@@ -34,7 +34,7 @@ class Rabbit_client_async(Connect_impl):
         self.rabbit_is_connect.subscribe(self.rabbitmq_connect_handler)
 
     async def resource_init(self):
-        logger.info('create RabbitMQ [EX] resource')
+        logger.bind(title='system').info('create RabbitMQ [EX] resource')
         if self.channel is None or self.connection is None:
             return False
         h_ex = await self.create_exchange(HEARTBEAT_EX, type='topic', options={'durable': True})
