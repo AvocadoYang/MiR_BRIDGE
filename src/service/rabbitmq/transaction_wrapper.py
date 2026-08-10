@@ -9,7 +9,7 @@ from src.types.ros import PointField
 
 
 def send_pose_localization(is_accurate: bool):
-    return {"cmd_id": CMD_ID.CHECK_POSITION.value, "isAccurate": is_accurate}
+    return {'cmd_id': CMD_ID.CHECK_POSITION.value, 'isAccurate': is_accurate}
 
 
 class Send_Pose(BaseModel):
@@ -33,6 +33,8 @@ class Send_Point_Cloud(BaseModel):
 
 class Send_MiR_AMR_STATUE(BaseModel):
     cmd_id: str = CMD_ID.MIR_AMR_STATUS.value
+    active_groups_id: str
+    active_map_id: str
     status: str
 
 
@@ -59,47 +61,47 @@ class Send_Ready_To_Joystick_Cmd(BaseModel):
     status_text: str
     unavailable_reason: (
         Literal[
-            "joystick own by others",
-            "move joystick to own joystick ownership",
-            "turn on manual mode",
-            "turn off manual break",
-            "press the resume button",
-            "robot is in protective stop",
+            'joystick own by others',
+            'move joystick to own joystick ownership',
+            'turn on manual mode',
+            'turn off manual break',
+            'press the resume button',
+            'robot is in protective stop',
         ]
         | None
     ) = None
 
 
 def send_error_info(error_info: Error_Info):
-    return {"cmd_id": CMD_ID.ERROR_INFO.value, **error_info}
+    return {'cmd_id': CMD_ID.ERROR_INFO.value, **error_info}
 
 
 def send_io_info(io: str):
-    return {"cmd_id": CMD_ID.IO_INFO.value, "io": io}
+    return {'cmd_id': CMD_ID.IO_INFO.value, 'io': io}
 
 
 def send_current_id(current_id: str):
-    return {"cmd_id": CMD_ID.CURRENT_ID.value, "currentId": current_id}
+    return {'cmd_id': CMD_ID.CURRENT_ID.value, 'currentId': current_id}
 
 
 def send_amr_is_registered(is_registered: bool):
-    return {"cmd_id": CMD_ID.REGISTERED.value, "isRegistered": is_registered}
+    return {'cmd_id': CMD_ID.REGISTERED.value, 'isRegistered': is_registered}
 
 
 def send_amr_has_mission(has_mission: bool):
-    return {"cmd_id": CMD_ID.HAS_MISSION.value, "hasMission": has_mission}
+    return {'cmd_id': CMD_ID.HAS_MISSION.value, 'hasMission': has_mission}
 
 
 def send_cargo_verify(cargo_verity: str):
-    return {"cmd_id": CMD_ID.CARGO_VERITY.value, "checkResult": cargo_verity}
+    return {'cmd_id': CMD_ID.CARGO_VERITY.value, 'checkResult': cargo_verity}
 
 
 def send_cargo_info(cargo_info: str):
-    return {"cmd_id": CMD_ID.STACK_INFO.value, "checkResult": cargo_info}
+    return {'cmd_id': CMD_ID.STACK_INFO.value, 'checkResult': cargo_info}
 
 
 def send_feedback(feedback_json: str):
-    return {"cmd_id": CMD_ID.FEEDBACK.value, "feedback": feedback_json}
+    return {'cmd_id': CMD_ID.FEEDBACK.value, 'feedback': feedback_json}
 
 
 ALL_REQUEST_MSG_FORMATE = Union[
@@ -116,7 +118,7 @@ ALL_REQUEST_MSG_FORMATE = Union[
 
 class Base_Response_Formate(BaseModel):
     cmd_id: str
-    return_code: str = "200"
+    return_code: str = '200'
     id: str
     amrId: str
 
@@ -131,16 +133,14 @@ class Heartbeat_Response(Base_Response_Formate):
     heartbeat: int
 
 
-ALL_RESPONSE_MSG_FORMATE = Union[
-    Base_Response_Formate, Heartbeat_Response, Write_Status_Response
-]
+ALL_RESPONSE_MSG_FORMATE = Union[Base_Response_Formate, Heartbeat_Response, Write_Status_Response]
 
 
 def base_transaction_res(action: ALL_CONTROL_TYPE, return_code: str):
-    payload = action["payload"]
+    payload = action['payload']
     return Base_Response_Formate(
-        id=payload["id"],
-        cmd_id=payload["cmd_id"],
-        amrId=payload["amrId"],
+        id=payload['id'],
+        cmd_id=payload['cmd_id'],
+        amrId=payload['amrId'],
         return_code=return_code,
     )

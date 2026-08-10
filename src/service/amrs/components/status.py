@@ -296,8 +296,11 @@ class Status:
                     options=options,
                 )
                 self.amr_status_signal.on_next(status_msg_data['state_text'])
-                status_msg = Send_MiR_AMR_STATUE(status=status_msg_data['state_text'])
-                # print(status_msg.json(), '?????????')
+                status_msg = Send_MiR_AMR_STATUE(
+                    status=status_msg_data['state_text'],
+                    active_groups_id=status_msg_data['session_id'],
+                    active_map_id=status_msg_data['map_id'],
+                )
 
                 await self.rb.req_publish(
                     exchange_name=IO_EX,
