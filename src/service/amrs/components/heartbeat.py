@@ -95,7 +95,7 @@ class Heartbeat:
         return reactivex.empty()
 
     def qams_timeout_process(self):
-        logger.warning('(QAMS) heartbeat timeout, disconnect')
+        logger.bind(title=self.amr_info.amrId).warning('(QAMS) heartbeat timeout, disconnect')
         self.qams_timeout_signal.on_next(True)
         self.start_heartbeat_watchdog.on_next(False)
 

@@ -64,7 +64,7 @@ class MiR_BRIDGE:
             )
             amr_info['amr'] = amr
             task.append(amr.start())
-        logger.info(f"currently obtaining mir's token for {len(task)} amr")
+        logger.bind(title='system').info(f"currently obtaining mir's token for {len(task)} amr")
 
     def sync_register_table(self):
         """
