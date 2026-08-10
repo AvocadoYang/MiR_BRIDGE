@@ -297,6 +297,8 @@ class Status:
                 )
                 self.amr_status_signal.on_next(status_msg_data['state_text'])
                 status_msg = Send_MiR_AMR_STATUE(status=status_msg_data['state_text'])
+                # print(status_msg.json(), '?????????')
+
                 await self.rb.req_publish(
                     exchange_name=IO_EX,
                     routing_key=f'amr.io.{self.amr_info.amrId}.mir_amr_status',
