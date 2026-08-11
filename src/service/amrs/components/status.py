@@ -22,6 +22,7 @@ from src.service.rabbitmq.transaction_wrapper import (
     Send_MiR_AMR_STATUE,
     Send_Point_Cloud,
     Send_Pose,
+    Send_Protective_Stop,
     Send_Ready_To_Joystick_Cmd,
     base_transaction_res,
 )
@@ -364,6 +365,18 @@ class Status:
                 self.in_manual_mode = safety['in_manual_mode']
                 self.manual_break_release_switch = safety['manual_break_release_switch']
                 self.is_reset_allowed = safety['is_reset_allowed']
+
+                options = PUBLISH_OPTIONS()
+                options.expiration = 2
+                status_msg = Send_Protective_Stop(protective_stop=safety['in_protective_stop'])
+                await self.rb.req_publish(
+                    exchange_name=IO_EX,
+                    routing_key=f'amr.io.{self.amr_info.amrId}.protective_stop',
+                    amr_info=self.amr_info,
+                    message=status_msg,
+                    options=options,
+                )
+
                 return
 
             if topic == '/PB/ready_to_send_mc_cmd':
