@@ -5,7 +5,7 @@ import random
 import time
 import uuid
 from enum import IntEnum
-from typing import List
+from typing import Any, List
 
 import httpx
 import websockets
@@ -42,6 +42,7 @@ from src.types.ros import (
 JOYSTICK_MAX_LINEAR_X = 0.8
 JOYSTICK_MAX_ANGULAR_Z = 0.5
 JOYSTICK_TOKEN_TIMEOUT = 2.0
+JOYSTICK_DEADZONE = 1.0
 # MiR robotState value (test use 11)
 JOYSTICK_ROBOT_STATE = 11
 MIRWEBAPP_STREAM_KEEPALIVE = 3.0
@@ -89,14 +90,16 @@ class Status:
         self.rb = rabbit_service
 
         self.amr_status_signal: Subject[str] = Subject()
+        self.ws: Any = None
         # robot joystick control status
         self.joystick_token: str | None = None
         self.joystick_token_ready = asyncio.Event()
-        self.joystick_token_lock = asyncio.Lock()
         self.web_session_id: str | None = None
         self.robot_state_text: str = ""
         self.robot_joystick_web_session_id: str = ""
         self.manual_control_ready: bool = False
+        self.joystick_available: bool = False
+        self._joystick_registering: bool = False
         # robot safety status
         self.in_protective_stop: bool = False
         self.in_manual_mode: bool = True
@@ -160,6 +163,7 @@ class Status:
                     ping_timeout=30,
                 ) as websocket:
                     self.ws = websocket
+                    self.web_session_id = self._generate_web_session_id()
 
                     topics_to_subscribe = [
                         # '/tf',
@@ -210,6 +214,8 @@ class Status:
             self.robot_state_text = ""
             self.robot_joystick_web_session_id = ""
             self.manual_control_ready = False
+            self.joystick_available = False
+            self._joystick_registering = False
             self.in_protective_stop = False
             self.in_manual_mode = True
             self.manual_break_release_switch = False
@@ -278,8 +284,8 @@ class Status:
                         "joystick session expired on robot side, "
                         "will re-register on next joystick command"
                     )
+
                     self.joystick_token = None
-                    self.web_session_id = None
                     self.joystick_token_ready.clear()
 
                 pose: Pose = {
@@ -373,7 +379,7 @@ class Status:
                 joystick_owned_by_others = bool(
                     self.robot_joystick_web_session_id
                 ) and (self.robot_joystick_web_session_id != self.web_session_id)
-                joystick_available = (
+                self.joystick_available = (
                     bool(ready_msg_data)
                     and not joystick_owned_by_others
                     and self.in_manual_mode
@@ -381,7 +387,7 @@ class Status:
 
                 # protective stop 幾乎在所有阻擋狀態都成立，
                 # 區辨度低，故放最後當 fallback，先回更具體、可操作的原因。
-                if joystick_available:
+                if self.joystick_available:
                     unavailable_reason = None
                 elif joystick_owned_by_others:
                     unavailable_reason = "joystick own by others"
@@ -400,7 +406,7 @@ class Status:
                     unavailable_reason = None
 
                 ready_msg = Send_Ready_To_Joystick_Cmd(
-                    joystick_available=joystick_available,
+                    joystick_available=self.joystick_available,
                     status_text=self.robot_state_text,
                     unavailable_reason=unavailable_reason,
                 )
@@ -416,7 +422,7 @@ class Status:
                 )
 
                 manual_control_ready = (
-                    joystick_available and self.robot_state_text == "ManualControl"
+                    self.joystick_available and self.robot_state_text == "ManualControl"
                 )
                 if manual_control_ready and not self.manual_control_ready:
                     logger.bind(title=self.amr_info.amrId).info(
@@ -482,44 +488,57 @@ class Status:
         except (httpx.HTTPStatusError, Exception) as e:
             print(e)
 
+    async def _acquire_joystick_control(self):
+        self._joystick_registering = True
+        try:
+            if self.web_session_id is None:
+                self.web_session_id = self._generate_web_session_id()
+
+            self.joystick_token_ready.clear()
+            set_state_msg: CallService = {
+                "op": "call_service",
+                "id": f"call_service:/mirsupervisor/setRobotState:{uuid.uuid4()}",
+                "service": "/mirsupervisor/setRobotState",
+                "type": "mirSupervisor/SetState",
+                "args": {
+                    "robotState": JOYSTICK_ROBOT_STATE,
+                    "web_session_id": self.web_session_id,
+                },
+            }
+            await self.ws.send(json.dumps(set_state_msg))
+
+            try:
+                await asyncio.wait_for(
+                    self.joystick_token_ready.wait(),
+                    timeout=JOYSTICK_TOKEN_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.bind(title=self.amr_info.amrId).warning(
+                    "no service_response within timeout, joystick control not acquired"
+                )
+                return
+
+            if not self.joystick_token:
+                logger.bind(title=self.amr_info.amrId).warning(
+                    "robot returned empty token (busy / not available)"
+                )
+        finally:
+            self._joystick_registering = False
+
     async def send_joystick_command(self, x: float, y: float):
         if self.ws is None:
             return
 
-        if not self.joystick_token:
-            async with self.joystick_token_lock:
-                if not self.joystick_token:
-                    if self.web_session_id is None:
-                        self.web_session_id = self._generate_web_session_id()
-
-                    self.joystick_token_ready.clear()
-                    set_state_msg: CallService = {
-                        "op": "call_service",
-                        "id": f"call_service:/mirsupervisor/setRobotState:{uuid.uuid4()}",
-                        "service": "/mirsupervisor/setRobotState",
-                        "type": "mirSupervisor/SetState",
-                        "args": {
-                            "robotState": JOYSTICK_ROBOT_STATE,
-                            "web_session_id": self.web_session_id,
-                        },
-                    }
-                    await self.ws.send(json.dumps(set_state_msg))
-
-                    try:
-                        await asyncio.wait_for(
-                            self.joystick_token_ready.wait(),
-                            timeout=JOYSTICK_TOKEN_TIMEOUT,
-                        )
-                    except asyncio.TimeoutError:
-                        logger.bind(title=self.amr_info.amrId).warning(
-                            "no service_response within timeout, dropping joystick command"
-                        )
-                        return
+        if abs(x) < JOYSTICK_DEADZONE and abs(y) < JOYSTICK_DEADZONE:
+            return
 
         if not self.joystick_token:
-            logger.bind(title=self.amr_info.amrId).warning(
-                "robot returned empty token (busy / not available), dropping joystick command"
-            )
+            if not self.joystick_available:
+                return
+            if self._joystick_registering:
+                return
+
+            await self._acquire_joystick_control()
             return
 
         msg: PublishMessage = {
