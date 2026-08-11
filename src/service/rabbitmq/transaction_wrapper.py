@@ -38,6 +38,11 @@ class Send_MiR_AMR_STATUE(BaseModel):
     status: str
 
 
+class Send_Protective_Stop(BaseModel):
+    cmd_id: str = CMD_ID.PROTECTIVE_STOP.value
+    protective_stop: bool
+
+
 class Read_Status(BaseModel):
     feedback_id: str
     action_status: int
@@ -112,6 +117,7 @@ ALL_REQUEST_MSG_FORMATE = Union[
     Send_IO_INFO,
     Send_Point_Cloud,
     Send_Ready_To_Joystick_Cmd,
+    Send_Protective_Stop,
 ]
 
 ## response fn

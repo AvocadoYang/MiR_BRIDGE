@@ -20,6 +20,7 @@ from src.service.rabbitmq.transaction_wrapper import (
     Send_MiR_AMR_STATUE,
     Send_Point_Cloud,
     Send_Pose,
+    Send_Protective_Stop,
     Send_Ready_To_Joystick_Cmd,
     base_transaction_res,
 )
