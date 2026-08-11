@@ -42,7 +42,6 @@ from src.types.ros import (
 JOYSTICK_MAX_LINEAR_X = 0.8
 JOYSTICK_MAX_ANGULAR_Z = 0.5
 JOYSTICK_TOKEN_TIMEOUT = 2.0
-JOYSTICK_DEADZONE = 1.0
 # MiR robotState value (test use 11)
 JOYSTICK_ROBOT_STATE = 11
 MIRWEBAPP_STREAM_KEEPALIVE = 3.0
@@ -529,12 +528,7 @@ class Status:
         if self.ws is None:
             return
 
-        if abs(x) < JOYSTICK_DEADZONE and abs(y) < JOYSTICK_DEADZONE:
-            return
-
         if not self.joystick_token:
-            if not self.joystick_available:
-                return
             if self._joystick_registering:
                 return
 
