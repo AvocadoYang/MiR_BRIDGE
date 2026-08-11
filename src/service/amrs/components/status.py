@@ -42,6 +42,7 @@ from src.types.ros import (
 JOYSTICK_MAX_LINEAR_X = 0.8
 JOYSTICK_MAX_ANGULAR_Z = 0.5
 JOYSTICK_TOKEN_TIMEOUT = 2.0
+JOYSTICK_REGISTER_DEBOUNCE = 1.0
 # MiR robotState value (test use 11)
 JOYSTICK_ROBOT_STATE = 11
 MIRWEBAPP_STREAM_KEEPALIVE = 3.0
@@ -99,6 +100,7 @@ class Status:
         self.manual_control_ready: bool = False
         self.joystick_available: bool = False
         self._joystick_registering: bool = False
+        self._joystick_last_register_at: float = float("-inf")
         # robot safety status
         self.in_protective_stop: bool = False
         self.in_manual_mode: bool = True
@@ -488,6 +490,10 @@ class Status:
             print(e)
 
     async def _acquire_joystick_control(self):
+        loop = asyncio.get_running_loop()
+        if loop.time() - self._joystick_last_register_at < JOYSTICK_REGISTER_DEBOUNCE:
+            return
+
         self._joystick_registering = True
         try:
             if self.web_session_id is None:
@@ -522,6 +528,7 @@ class Status:
                     "robot returned empty token (busy / not available)"
                 )
         finally:
+            self._joystick_last_register_at = loop.time()
             self._joystick_registering = False
 
     async def send_joystick_command(self, x: float, y: float):
