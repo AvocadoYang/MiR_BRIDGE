@@ -1,8 +1,6 @@
 import asyncio
 import json
 import math
-import random
-import time
 import uuid
 from enum import IntEnum
 from typing import Any, List
@@ -39,8 +37,8 @@ from src.types.ros import (
     TFMessage,
 )
 
-JOYSTICK_MAX_LINEAR_X = 0.8
-JOYSTICK_MAX_ANGULAR_Z = 0.5
+JOYSTICK_MAX_LINEAR_X = 0.5
+JOYSTICK_MAX_ANGULAR_Z = 0.3
 JOYSTICK_TOKEN_TIMEOUT = 2.0
 JOYSTICK_REGISTER_DEBOUNCE = 1.0
 # MiR robotState value (test use 11)
@@ -144,7 +142,15 @@ class Status:
                     f"emergency stop payload parse failed: {e}"
                 )
         if payload["cmd_id"] == CMD_ID.JOYSTICK.value:
-            asyncio.create_task(self.send_joystick_command(payload["x"], payload["y"]))
+            web_session_id = payload.get("web_session_id")
+            if not web_session_id:
+                logger.bind(title=self.amr_info.amrId).warning(
+                    "joystick command without web_session_id, ignored"
+                )
+                return
+            asyncio.create_task(
+                self.send_joystick_command(payload["x"], payload["y"], web_session_id)
+            )
 
     async def ros_bridge_connect(self, mir_token: str):
         """
@@ -164,7 +170,6 @@ class Status:
                     ping_timeout=30,
                 ) as websocket:
                     self.ws = websocket
-                    self.web_session_id = self._generate_web_session_id()
 
                     topics_to_subscribe = [
                         # '/tf',
@@ -391,7 +396,7 @@ class Status:
                 if self.joystick_available:
                     unavailable_reason = None
                 elif joystick_owned_by_others:
-                    unavailable_reason = "joystick own by others"
+                    unavailable_reason = "joystick owned by others"
                 elif not self.in_manual_mode:
                     unavailable_reason = "turn on manual mode"
                 elif self.manual_break_release_switch:
@@ -410,6 +415,7 @@ class Status:
                     joystick_available=self.joystick_available,
                     status_text=self.robot_state_text,
                     unavailable_reason=unavailable_reason,
+                    joystick_owner_session_id=self.robot_joystick_web_session_id,
                 )
                 options = PUBLISH_OPTIONS()
                 options.expiration = 2
@@ -457,11 +463,6 @@ class Status:
     def sanitize_degree(self, deg: float):
         return ((deg % 360) + 360) % 360
 
-    def _generate_web_session_id(self) -> str:
-        # mimics the "<ms timestamp>-<0~100 random float>" shape observed
-        # from a real joystick client's setRobotState call
-        return f"{int(time.time() * 1000)}-{random.uniform(0, 100)}"
-
     async def request_error_reset(self):
         if self.ws is None:
             return
@@ -489,15 +490,14 @@ class Status:
         except (httpx.HTTPStatusError, Exception) as e:
             print(e)
 
-    async def _acquire_joystick_control(self):
+    async def _acquire_joystick_control(self, web_session_id: str):
         loop = asyncio.get_running_loop()
         if loop.time() - self._joystick_last_register_at < JOYSTICK_REGISTER_DEBOUNCE:
             return
 
         self._joystick_registering = True
         try:
-            if self.web_session_id is None:
-                self.web_session_id = self._generate_web_session_id()
+            self.web_session_id = web_session_id
 
             self.joystick_token_ready.clear()
             set_state_msg: CallService = {
@@ -531,15 +531,18 @@ class Status:
             self._joystick_last_register_at = loop.time()
             self._joystick_registering = False
 
-    async def send_joystick_command(self, x: float, y: float):
+    async def send_joystick_command(self, x: float, y: float, web_session_id: str):
         if self.ws is None:
+            return
+
+        if self.joystick_token and self.web_session_id != web_session_id:
             return
 
         if not self.joystick_token:
             if self._joystick_registering:
                 return
 
-            await self._acquire_joystick_control()
+            await self._acquire_joystick_control(web_session_id)
             return
 
         msg: PublishMessage = {

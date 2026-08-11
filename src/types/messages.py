@@ -65,6 +65,7 @@ class Joystick_Control(Payload_Base):
     cmd_id: Literal['JOYSTICK']
     x: float
     y: float
+    web_session_id: str
 
 
 # ----------
