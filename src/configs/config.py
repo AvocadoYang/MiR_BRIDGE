@@ -1,4 +1,5 @@
 import pathlib
+from typing import List
 
 import yaml
 from loguru import logger
@@ -21,6 +22,7 @@ class Config(BaseModel):
     AMR_SERVICE_BRIDGE_POST: int = 8532
     MIR_ACCOUNT: str = 'distributor'
     MIR_PASSWORD: str = 'distributor'
+    ELEVATORS: List[List[str]]
 
 
 def _load_yml_config(path: pathlib.Path):

@@ -41,7 +41,9 @@ class WebServer:
 
             # Log the error with context
             logger.bind(state=f'[{request.method}]').warning(
-                f'Application error: {exc.error_code} - {exc.message}',
+                'Application error: {} - {}',
+                exc.error_code,
+                exc.message,
                 extra={
                     'error_code': exc.error_code,
                     'status_code': exc.status_code,
