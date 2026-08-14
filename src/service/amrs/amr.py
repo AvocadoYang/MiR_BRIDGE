@@ -379,7 +379,7 @@ class AMR:
 
         try:
             get_loc_url = f"http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/test/map?type=locations"
-            get_all_map_url = f"http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/setting/get-allMapData"
+            get_all_map_url = f"http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/setting/mir/vehicle-maps"
             async with httpx.AsyncClient() as client:
                 maps_res = await client.get(
                     url=get_all_map_url, headers=headers, timeout=3
