@@ -49,10 +49,12 @@ class AMR:
 
         self.rabbit_service = rabbit_service
 
-        self.mir_token: str = ''  ## mir token for websocket create
-        self.user_uuid: str = ''
+        self.mir_token: str = ""  ## mir token for websocket create
+        self.user_uuid: str = ""
 
-        self.show_get_mir_token_error_log = True  ## log switch of mir token getting function
+        self.show_get_mir_token_error_log = (
+            True  ## log switch of mir token getting function
+        )
         self.show_qams_connect_error_log = True
         self.got_mir_token = False  ## loop controler of mir token gettin function
 
@@ -60,7 +62,9 @@ class AMR:
         self.queues: dict[str, AbstractQueue] = {}
         # self.consuming_queue: dict[str, ConsumerTag] = {}
 
-        self.receive_request_record: dict[str, str] = {}  ## record the last receive request
+        self.receive_request_record: dict[str, str] = (
+            {}
+        )  ## record the last receive request
 
         ## subjecter of action
         self.heartbeat_input_: Subject[HEARTBEAT] = Subject()
@@ -69,9 +73,9 @@ class AMR:
         # Connection status tracker.
         # will connect to QAMS only when both MiR service and RabbitMQ are connected.
         self.connect_status: CONNECT_STATUS = {
-            'qams_is_connect': False,
-            'rabbitmq_is_connect': False,
-            'mir_service_is_connect': False,
+            "qams_is_connect": False,
+            "rabbitmq_is_connect": False,
+            "mir_service_is_connect": False,
         }
         self.qams_connect_status: BehaviorSubject[bool] = BehaviorSubject(False)
         self.rb_connect_status: BehaviorSubject[bool] = BehaviorSubject(
@@ -114,7 +118,9 @@ class AMR:
 
         self.subs: List[DisposableBase] = [
             combine_latest(
-                self.qams_connect_status, self.rb_connect_status, self.mir_service_connect_status
+                self.qams_connect_status,
+                self.rb_connect_status,
+                self.mir_service_connect_status,
             )
             .pipe(
                 distinct_until_changed(
@@ -125,9 +131,13 @@ class AMR:
                         and (pre_list[2] == curr_list[2])
                     ),
                 ),
-                do_action(lambda connect_list: self._check_and_log_status(connect_list)),
+                do_action(
+                    lambda connect_list: self._check_and_log_status(connect_list)
+                ),
             )
-            .subscribe(on_next=lambda connect_list: self.connect_behavior(connect_list)),
+            .subscribe(
+                on_next=lambda connect_list: self.connect_behavior(connect_list)
+            ),
             self.heartbeat_c.qams_timeout_signal.subscribe(
                 lambda action: self.qams_connect_status.on_next(False)
             ),
@@ -150,7 +160,7 @@ class AMR:
             token: str
             allowed_methods: Union[str, None]
 
-        url = f'http://{self.amr_info.ip}/api/v2.0.0/users/auth'
+        url = f"http://{self.amr_info.ip}/api/v2.0.0/users/auth"
         while not self.start_destroy_process:
             try:
                 async with httpx.AsyncClient() as client:
@@ -165,13 +175,13 @@ class AMR:
             except (httpx.HTTPError, Exception):
                 if self.show_get_mir_token_error_log:
                     logger.bind(title=self.amr_info.amrId).error(
-                        f'connect failed: did not get mir token from {url} ，retry after 3s ...',
+                        f"connect failed: did not get mir token from {url} ，retry after 3s ...",
                     )
                     self.show_get_mir_token_error_log = False
             await asyncio.sleep(3)
 
     async def connect_with_qams(self):
-        url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/amr/mir-establish-connection'
+        url = f"http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/amr/mir-establish-connection"
 
         class Schema(BaseModel):
             applicant: str
@@ -183,7 +193,7 @@ class AMR:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     url=url,
-                    json={'serialNumber': self.amr_info.mac_address},
+                    json={"serialNumber": self.amr_info.mac_address},
                     timeout=2,
                 )
                 data = Schema(**response.json())
@@ -198,13 +208,13 @@ class AMR:
         except httpx.HTTPError as e:
             if self.show_qams_connect_error_log:
                 logger.bind(title=self.amr_info.amrId).error(
-                    f'QAMS request error: {e},  retry afater 3s...'
+                    f"QAMS request error: {e},  retry afater 3s..."
                 )
                 self.show_qams_connect_error_log = False
         except ValidationError as e:
             if self.show_qams_connect_error_log:
                 logger.bind(title=self.amr_info.amrId).error(
-                    f'QAMS validate error: {e},  retry afater 3s...'
+                    f"QAMS validate error: {e},  retry afater 3s..."
                 )
                 self.show_qams_connect_error_log = False
 
@@ -216,19 +226,23 @@ class AMR:
 
     async def init_queues_and_bind_with_exchange(self):
         if not len(self.queues):
-            logger.bind(title=self.amr_info.amrId).info('init queue and bind with exchange')
+            logger.bind(title=self.amr_info.amrId).info(
+                "init queue and bind with exchange"
+            )
             queue_pairs = get_all_queue_exchange_relationship(self.amr_info.mac_address)
             for pair in queue_pairs:
                 queue = await self.rabbit_service.create_queue_and_bind(
                     amrId=self.amr_info.amrId,
-                    queue_name=pair['q_name'],
-                    exchange=pair['bind_ex'],
-                    routing_key=pair['key'],
-                    q_options={'durable': True},
+                    queue_name=pair["q_name"],
+                    exchange=pair["bind_ex"],
+                    routing_key=pair["key"],
+                    q_options={"durable": True},
                 )
                 if queue is not None:
-                    self.queues[pair['q_name']] = queue
-            need_consume_queue = dynamicListener_queues(serialNum=self.amr_info.mac_address)
+                    self.queues[pair["q_name"]] = queue
+            need_consume_queue = dynamicListener_queues(
+                serialNum=self.amr_info.mac_address
+            )
             for queue_name in need_consume_queue:
                 if queue_name == heartbeatPingQName(self.amr_info.mac_address):
                     await self.rabbit_service.consume_queue(
@@ -250,11 +264,11 @@ class AMR:
                     )
 
     def __heartbeat_consumer(self, msg: HEARTBEAT):
-        self.receive_request_record[msg['payload']['cmd_id']] = msg['session']
+        self.receive_request_record[msg["payload"]["cmd_id"]] = msg["session"]
         self.heartbeat_input_.on_next(msg)
 
     def __control_consumer(self, msg: ALL_CONTROL_TYPE):
-        self.receive_request_record[msg['payload']['cmd_id']] = msg['session']
+        self.receive_request_record[msg["payload"]["cmd_id"]] = msg["session"]
         self.control_transaction_input_.on_next(msg)
 
     def __response_consumer(self, msg):
@@ -265,14 +279,16 @@ class AMR:
         connect status logger
         """
         qams_c, rabbit_c, amr_service_c = states
-        self.connect_status['qams_is_connect'] = qams_c
-        self.connect_status['rabbitmq_is_connect'] = rabbit_c
-        self.connect_status['mir_service_is_connect'] = amr_service_c
-        qams_r = 'qams: connect ✅' if qams_c else 'qams: disconnect ❌'
-        rabbit_r = 'rabbitmq: connect ✅' if rabbit_c else 'rabbitmq: disconnect ❌'
-        mir_service_r = 'mir_service: connect ✅' if amr_service_c else 'mir_service: disconnect ❌'
+        self.connect_status["qams_is_connect"] = qams_c
+        self.connect_status["rabbitmq_is_connect"] = rabbit_c
+        self.connect_status["mir_service_is_connect"] = amr_service_c
+        qams_r = "qams: connect ✅" if qams_c else "qams: disconnect ❌"
+        rabbit_r = "rabbitmq: connect ✅" if rabbit_c else "rabbitmq: disconnect ❌"
+        mir_service_r = (
+            "mir_service: connect ✅" if amr_service_c else "mir_service: disconnect ❌"
+        )
         logger.bind(title=self.amr_info.amrId).info(
-            f'service status:  {qams_r} / {rabbit_r} / {mir_service_r}'
+            f"service status:  {qams_r} / {rabbit_r} / {mir_service_r}"
         )
 
     ## (qams, rabbitmq, mir_service)
@@ -319,15 +335,6 @@ class AMR:
             allMap: List[Map]
             systemFilePath: str
 
-        class ADD_Map(BaseModel):
-            guid: str
-            name: str
-            origin_theta: float
-            origin_x: float
-            origin_y: float
-            resolution: float
-            session_id: str
-
         ## location type from qams
         class Location(BaseModel):
             id: str
@@ -371,65 +378,48 @@ class AMR:
             created_by_id: str
 
         try:
-            get_loc_url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/test/map?type=locations'
-            get_all_map_url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/setting/get-allMapData'
+            get_loc_url = f"http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/test/map?type=locations"
+            get_all_map_url = f"http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/setting/get-allMapData"
             async with httpx.AsyncClient() as client:
-                maps_res = await client.get(url=get_all_map_url, headers=headers, timeout=3)
+                maps_res = await client.get(
+                    url=get_all_map_url, headers=headers, timeout=3
+                )
                 valid_maps_data = ALL_Maps(**maps_res.json())
 
                 for map in valid_maps_data.allMap:
-                    if map.map_group_id == 'None':
+                    if map.map_group_id == "None":
                         continue
                     try:
-                        get_session_url = (
-                            f'http://{self.amr_info.ip}/api/v2.0.0/sessions/{map.map_group_id}'
-                        )
+                        get_session_url = f"http://{self.amr_info.ip}/api/v2.0.0/sessions/{map.map_group_id}"
                         has_session = await client.get(
                             url=get_session_url, headers=headers, timeout=3
                         )
-                        if 'error_code' in has_session.json():
-                            new_session = {'name': map.map_group_name, 'guid': map.map_group_id}
-                            data = await client.post(
-                                url=f'http://{self.amr_info.ip}/api/v2.0.0/sessions',
-                                json=new_session,
-                                headers=headers,
-                                timeout=3,
+                        if "error_code" in has_session.json():
+                            logger.bind(title=self.amr_info.amrId).warning(
+                                f"session {map.map_group_id} ({map.map_group_name}) "
+                                "does not exist on mir, skip"
                             )
+                            continue
 
-                        get_map_url = f'http://{self.amr_info.ip}/api/v2.0.0/maps/{map.id}'
-                        data = await client.get(url=get_map_url, headers=headers, timeout=3)
-                        if 'error_code' in data.json():
-                            add_map_url = f'http://{self.amr_info.ip}/api/v2.0.0/maps/'
-                            new_map = ADD_Map(
-                                guid=map.id,
-                                name=Path(map.fileName).stem,
-                                origin_theta=0,
-                                origin_x=map.mapOriginX,
-                                origin_y=map.mapOriginY,
-                                resolution=map.resolution,
-                                session_id=map.map_group_id,
+                        get_map_url = (
+                            f"http://{self.amr_info.ip}/api/v2.0.0/maps/{map.id}"
+                        )
+                        data = await client.get(
+                            url=get_map_url, headers=headers, timeout=3
+                        )
+                        if "error_code" in data.json():
+                            logger.bind(title=self.amr_info.amrId).warning(
+                                f"map {map.id} ({Path(map.fileName).stem}) "
+                                "does not exist on mir, skip"
                             )
-
-                            await client.post(
-                                url=add_map_url,
-                                headers=headers,
-                                json=new_map.model_dump(),
-                                timeout=3,
-                            )
-
-                            # update_map_url = f'http://{self.amr_info.ip}/api/v2.0.0/maps/{map.id}'
-                            # update_map_data = {
-
-                            # }
-                            # await client.post(
-                            #     url=update_map_url,
-                            #     headers=headers,
-                            #     json=
-                            # )
                     except Exception as e:
-                        print(e, '@@@@@@@@')
+                        logger.bind(title=self.amr_info.amrId).error(
+                            f"check map resource of {map.id} failed: {e}"
+                        )
 
-                locations_res = await client.get(url=get_loc_url, headers=headers, timeout=3)
+                locations_res = await client.get(
+                    url=get_loc_url, headers=headers, timeout=3
+                )
 
                 valid_data = ALL_Location(**locations_res.json())
 
@@ -459,7 +449,7 @@ class AMR:
                 #     await client.post(
                 #         url=url, headers=headers, json=new_position.model_dump(), timeout=3
                 #     )
-            logger.bind(title=self.amr_info.amrId).info('resource sync successful')
+            logger.bind(title=self.amr_info.amrId).info("resource sync successful")
 
         except (httpx.HTTPStatusError, Exception) as e:
             logger.bind(title=self.amr_info.amrId).error(e)
@@ -473,7 +463,7 @@ class AMR:
         if self.rabbit_service.channel:
             queue_pairs = get_all_queue_exchange_relationship(self.amr_info.mac_address)
             for pair in queue_pairs:
-                await self.rabbit_service.channel.queue_delete(pair['q_name'])
+                await self.rabbit_service.channel.queue_delete(pair["q_name"])
         for sub in self.subs:
             sub.dispose()
         await self.heartbeat_c.destroy()
