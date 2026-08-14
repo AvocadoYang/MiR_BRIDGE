@@ -47,10 +47,20 @@ async def create_amr(request: Request, create_info: REGISTER_AMR_INFO):
 
 @router.put('/update_mir_amr', response_model=REGISTER_AMR_INFO)
 async def update_amr(request: Request, update_info: REGISTER_AMR_INFO):
+    output: Subject[ALL_Web_Action_Type] = request.state.output
     if update_info.serialNum not in request.state.register_table:
         raise NotFoundError(
             f'can not found mac address {update_info.serialNum} in register table',
         )
+
+    update_payload = All_Web_Action.UPDATE_AMR_ACTION(
+        mac_address=update_info.serialNum,
+        ip=update_info.ip,
+        amrId=update_info.amrId,
+        is_enable=update_info.is_enable,
+    )
+
+    output.on_next(update_payload)
     pretty_json = update_info.model_dump_json()
     logger.bind(state='[PUT]').info(f'update amr: {pretty_json}')
     return update_info
