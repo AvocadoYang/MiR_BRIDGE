@@ -42,6 +42,7 @@ class Connect_impl:
             self.connection.close_callbacks.add(self._on_close)
 
             self.channel = await self.connection.channel()
+
             await self.channel.set_qos(prefetch_count=10)
 
             self._show_connect_logger = True

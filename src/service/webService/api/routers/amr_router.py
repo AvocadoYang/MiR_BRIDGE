@@ -1,21 +1,20 @@
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from pydantic import BaseModel
-from reactivex import Subject
 
-from src.actions import All_Web_Action, ALL_Web_Action_Type
+from src.actions import All_Web_Action
 from src.logger import logger
-from src.types.amr import REGISTER_TABLE
 from src.types.web import DELETE_AMR_INFO, REGISTER_AMR_INFO, AMRMapResponse, Work_Status
 
 from ...handler import ConflictError, CustomSuccessRoute, NotFoundError
 from ...httpx_set import headers
+from ...state import AppRequest
 
 router = APIRouter(prefix='/amr', route_class=CustomSuccessRoute)
 
 
 @router.get('/all_mir_amr', response_model=AMRMapResponse)
-async def read_root(request: Request):
+async def read_root(request: AppRequest):
     res = {
         serialNum: {
             'amrId': info['amrId'],
@@ -28,9 +27,9 @@ async def read_root(request: Request):
 
 
 @router.post('/create_mir_amr', response_model=REGISTER_AMR_INFO)
-async def create_amr(request: Request, create_info: REGISTER_AMR_INFO):
-    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
-    output: Subject[ALL_Web_Action_Type] = request.state.output
+async def create_amr(request: AppRequest, create_info: REGISTER_AMR_INFO):
+    register_table = request.state.register_table
+    output = request.state.output
     if create_info.serialNum in register_table:
         raise ConflictError(resource=create_info.serialNum)
     create_payload = All_Web_Action.ADD_AMR_ACTION(
@@ -46,8 +45,8 @@ async def create_amr(request: Request, create_info: REGISTER_AMR_INFO):
 
 
 @router.put('/update_mir_amr', response_model=REGISTER_AMR_INFO)
-async def update_amr(request: Request, update_info: REGISTER_AMR_INFO):
-    output: Subject[ALL_Web_Action_Type] = request.state.output
+async def update_amr(request: AppRequest, update_info: REGISTER_AMR_INFO):
+    output = request.state.output
     if update_info.serialNum not in request.state.register_table:
         raise NotFoundError(
             f'can not found mac address {update_info.serialNum} in register table',
@@ -67,8 +66,8 @@ async def update_amr(request: Request, update_info: REGISTER_AMR_INFO):
 
 
 @router.delete('/delete_mir_amr', response_model=DELETE_AMR_INFO)
-async def delete_amr(request: Request, delete_info: DELETE_AMR_INFO):
-    output: Subject[ALL_Web_Action_Type] = request.state.output
+async def delete_amr(request: AppRequest, delete_info: DELETE_AMR_INFO):
+    output = request.state.output
     if delete_info.serialNum not in request.state.register_table:
         raise NotFoundError(
             f'can not found mac address {delete_info.serialNum} in register table',
@@ -88,8 +87,8 @@ class State_Payload(BaseModel):
 
 
 @router.post('/switch-work-status')
-async def switch_work_status(request: Request, work_status: Work_Status):
-    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+async def switch_work_status(request: AppRequest, work_status: Work_Status):
+    register_table = request.state.register_table
     if work_status.serialNum not in register_table:
         raise NotFoundError(
             f'can not found mac address {work_status.serialNum} in register table',
@@ -127,8 +126,8 @@ class Localization_Payload(BaseModel):
 
 
 @router.post('/localization')
-async def localization(request: Request, position: Localization):
-    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+async def localization(request: AppRequest, position: Localization):
+    register_table = request.state.register_table
     if position.serialNumber not in register_table:
         raise NotFoundError(
             f'can not found mac address {position.serialNumber} in register table',

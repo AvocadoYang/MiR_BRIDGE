@@ -66,8 +66,15 @@ class Elevator_Machine(StateChart):
     released = releasing.to(idle)
 
     def __init__(
-        self, ip: str, username: str = 'root', password: str = '00000000', timeout: float = 3.0
+        self,
+        locationId: str,
+        ip: str,
+        username: str = 'root',
+        password: str = '00000000',
+        timeout: float = 3.0,
     ):
+        self.id = f'elevator-{locationId}'
+        logger.bind(title=self.id).info(f'create elevator instant with ip: {ip}')
         self.ip = ip
         self.username = username
         self.password = password
@@ -81,7 +88,6 @@ class Elevator_Machine(StateChart):
         self._connected_ok = False
         self._exclusive_ok = False
         self._step_results: List[tuple] = []
-
         super().__init__()
 
     async def close(self) -> None:

@@ -1,5 +1,15 @@
-from .amr import AMR_INFO, CONNECT_STATUS, REGISTER_TABLE, BatteryInfo, Fork, IOInfo, Twist
+from .amr import (
+    AMR_INFO,
+    AMR_REGISTER_INFO,
+    CONNECT_STATUS,
+    REGISTER_TABLE,
+    BatteryInfo,
+    Fork,
+    IOInfo,
+    Twist,
+)
 from .cmd_id import CMD_ID, blacklist
+from .equipment import ELEVATOR_TABLE
 from .map import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
 from .messages import (
     ALL_CONTROL_TYPE,
@@ -35,6 +45,7 @@ from .web import (
 __all__ = [
     # amr
     'AMR_INFO',
+    'AMR_REGISTER_INFO',
     'REGISTER_TABLE',
     'CONNECT_STATUS',
     'IOInfo',
@@ -44,6 +55,8 @@ __all__ = [
     # cmd_id
     'CMD_ID',
     'blacklist',
+    # equipment
+    'ELEVATOR_TABLE',
     # map
     'PeripheralType',
     'PERIPHERAL_TYPE_MAP',

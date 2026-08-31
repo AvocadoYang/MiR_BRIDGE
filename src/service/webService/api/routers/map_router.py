@@ -1,12 +1,12 @@
 from typing import List, Union
 
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from pydantic import BaseModel, RootModel
 from pydantic import ValidationError as PydanticValidationError
 
 from src.logger import logger
-from src.types.amr import REGISTER_TABLE
+from src.types.amr import AMR_REGISTER_INFO, REGISTER_TABLE
 from src.types.map import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
 from src.types.web import ALL_Groups, Maps
 
@@ -17,6 +17,7 @@ from ...handler import (
     ValidationError,
 )
 from ...httpx_set import headers
+from ...state import AppRequest
 
 router = APIRouter(prefix="/map", route_class=CustomSuccessRoute)
 
@@ -90,9 +91,9 @@ class SessionDetail(BaseModel):
 
 
 @router.post("/add_position")
-async def add_position(request: Request, new_position: Location):
+async def add_position(request: AppRequest, new_position: Location):
     try:
-        register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+        register_table = request.state.register_table
         async with httpx.AsyncClient() as client:
             for mac_address, info in register_table.items():
                 amr = info["amr"]
@@ -122,9 +123,9 @@ async def add_position(request: Request, new_position: Location):
 
 
 @router.delete("/delete_position")
-async def delete_position(request: Request, payload: LocationIDs):
+async def delete_position(request: AppRequest, payload: LocationIDs):
     try:
-        register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+        register_table = request.state.register_table
         async with httpx.AsyncClient() as client:
             for locationId in payload.locationIds:
                 for mac_address, info in register_table.items():
@@ -153,8 +154,8 @@ class MapUsingFormat(BaseModel):
 
 
 @router.put("/switch-map")
-async def change_map_use(request: Request, payload: MapUsingFormat):
-    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+async def change_map_use(request: AppRequest, payload: MapUsingFormat):
+    register_table = request.state.register_table
 
     info = register_table.get(payload.mac_address)
     if info is None:
@@ -194,9 +195,9 @@ async def change_map_use(request: Request, payload: MapUsingFormat):
 
 
 @router.get("/all_groups", response_model=List[ALL_Groups])
-async def get_all_groups(request: Request):
+async def get_all_groups(request: AppRequest):
     res: List[ALL_Groups] = []
-    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+    register_table = request.state.register_table
 
     class Session(BaseModel):
         guid: str
@@ -228,8 +229,8 @@ async def get_all_groups(request: Request):
 
 
 def _resolve_target_MiRs(
-    register_table: dict[str, REGISTER_TABLE], serialNum: Union[str, None]
-) -> List[REGISTER_TABLE]:
+    register_table: REGISTER_TABLE, serialNum: Union[str, None]
+) -> List[AMR_REGISTER_INFO]:
     """Pick which connected AMRs a read endpoint should query.
 
     Without serialNum: every connected AMR (fleet-wide aggregate — the existing
@@ -263,9 +264,9 @@ def _resolve_target_MiRs(
 
 
 @router.get("/sync_map", response_model=List[MapListItem])
-async def sync_map_list(request: Request, serialNum: Union[str, None] = None):
+async def sync_map_list(request: AppRequest, serialNum: Union[str, None] = None):
     res: List[MapListItem] = []
-    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+    register_table = request.state.register_table
     targets = _resolve_target_MiRs(register_table, serialNum)
 
     class MapListSchema(RootModel[List[MapListItem]]):
@@ -300,8 +301,8 @@ async def sync_map_list(request: Request, serialNum: Union[str, None] = None):
 
 
 @router.get("/sync_map/{guid}", response_model=Maps)
-async def sync_map(request: Request, guid: str, serialNum: Union[str, None] = None):
-    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+async def sync_map(request: AppRequest, guid: str, serialNum: Union[str, None] = None):
+    register_table = request.state.register_table
     targets = _resolve_target_MiRs(register_table, serialNum)
 
     for item in targets:
@@ -382,10 +383,10 @@ class MapUpload(BaseModel):
 
 
 @router.post("/push")
-async def push_map(request: Request, payload: MapPush):
-    register_table: dict[str, REGISTER_TABLE] = request.state.register_table
+async def push_map(request: AppRequest, payload: MapPush):
+    register_table = request.state.register_table
 
-    target: Union[REGISTER_TABLE, None] = None
+    target: Union[AMR_REGISTER_INFO, None] = None
     for item in register_table.values():
         if item["serialNum"] == payload.serialNum:
             target = item

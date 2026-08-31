@@ -6,12 +6,15 @@ if TYPE_CHECKING:
     from src.service import AMR
 
 
-class REGISTER_TABLE(TypedDict):
+class AMR_REGISTER_INFO(TypedDict):
     ip: str
     serialNum: str
     amrId: str
     is_enable: bool
     amr: Union['AMR', None]
+
+
+REGISTER_TABLE = dict[str, AMR_REGISTER_INFO]
 
 
 class CONNECT_STATUS(TypedDict):
