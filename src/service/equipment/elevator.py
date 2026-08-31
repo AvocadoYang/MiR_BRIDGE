@@ -80,8 +80,9 @@ class Elevator_Machine(StateChart):
         self.password = password
         self.timeout = timeout
 
-        self.device: Optional[WISE4060] = None
-        self.io: Optional[ElevatorIO] = None
+        self.device = WISE4060(ip=ip, username=username, password=password, timeout=timeout)
+        self.io = ElevatorIO(self.device)
+        self._logged_in = False
 
         self._lock = asyncio.Lock()
         self._steps: List[_Step] = []
@@ -91,10 +92,15 @@ class Elevator_Machine(StateChart):
         super().__init__()
 
     async def close(self) -> None:
-        if self.device is not None:
-            await self.device.close()
-            self.device = None
-            self.io = None
+        await self.device.close()
+        self._logged_in = False
+
+    async def ensure_connected(self) -> None:
+        """Log in if needed. Call before touching `self.device` directly, outside
+        of the go_to/hold_door/release_door request cycle."""
+        if not self._logged_in or not await self.device.check_alive():
+            await self.device.login()
+            self._logged_in = True
 
     # ── public requests ────────────────────────────────
 
@@ -141,25 +147,16 @@ class Elevator_Machine(StateChart):
 
     async def on_enter_checking_connection(self):
         try:
-            if self.device is None or not await self.device.check_alive():
-                if self.device is not None:
-                    await self.device.close()
-                self.device = WISE4060(self.ip, self.username, self.password, self.timeout)
-                await self.device.login()
-                self.io = ElevatorIO(self.device)
+            await self.ensure_connected()
             self._connected_ok = True
             await self.send('connection_ok')
         except Exception as e:
             self._connected_ok = False
-            if self.device is not None:
-                await self.device.close()
-            self.device = None
-            self.io = None
+            self._logged_in = False
             logger.bind(title=self.ip).error(f'elevator connection failed: {e}')
             await self.send('connection_failed')
 
     async def on_enter_requesting_exclusive(self):
-        assert self.io is not None
         io = self.io
         await io.request_exclusive()
         granted = await self._poll(io.is_exclusive_active, self.EXCLUSIVE_CONFIRM_TIMEOUT)
@@ -177,7 +174,6 @@ class Elevator_Machine(StateChart):
             await self.send('finish')
 
     async def on_enter_performing_action(self):
-        assert self.io is not None
         io = self.io
         step = self._steps.pop(0)
         await step.perform(io)
@@ -195,8 +191,7 @@ class Elevator_Machine(StateChart):
 
     async def on_enter_releasing(self):
         try:
-            if self.io is not None:
-                await self.io.clear()
+            await self.io.clear()
         except Exception as e:
             logger.bind(title=self.ip).error(f'failed to release exclusive mode: {e}')
         await self.send('released')

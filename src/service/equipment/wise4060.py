@@ -10,7 +10,7 @@ class DIChannel:
     ch: int
     mode: int
     val: int
-    stat: int      # 0=LOW, 1=HIGH
+    stat: int  # 0=LOW, 1=HIGH
     cnting: int
     ovlch: int
 
@@ -20,7 +20,7 @@ class DOChannel:
     ch: int
     mode: int
     val: int
-    stat: int      # 0=LOW, 1=HIGH
+    stat: int  # 0=LOW, 1=HIGH
     ps_ctn: int
     ps_stop: int
     ps_iv: int
@@ -34,7 +34,9 @@ class WISE4060:
     session cookie alive across calls, the same way the WISE-4060 web UI expects.
     """
 
-    def __init__(self, ip: str, username: str = 'root', password: str = '00000000', timeout: float = 3.0):
+    def __init__(
+        self, ip: str, username: str = 'root', password: str = '00000000', timeout: float = 3.0
+    ):
         self.ip = ip
         self.base_url = f'http://{ip}'
         self.username = username
@@ -79,8 +81,12 @@ class WISE4060:
         data = await self._get('/di_value/slot_0')
         return [
             DIChannel(
-                ch=ch['Ch'], mode=ch['Md'], val=ch['Val'],
-                stat=ch['Stat'], cnting=ch['Cnting'], ovlch=ch['OvLch'],
+                ch=ch['Ch'],
+                mode=ch['Md'],
+                val=ch['Val'],
+                stat=ch['Stat'],
+                cnting=ch['Cnting'],
+                ovlch=ch['OvLch'],
             )
             for ch in data['DIVal']
         ]
@@ -88,8 +94,12 @@ class WISE4060:
     async def get_di(self, ch: int) -> DIChannel:
         data = await self._get(f'/di_value/slot_0/ch_{ch}')
         return DIChannel(
-            ch=data['Ch'], mode=data['Md'], val=data['Val'],
-            stat=data['Stat'], cnting=data['Cnting'], ovlch=data['OvLch'],
+            ch=data['Ch'],
+            mode=data['Md'],
+            val=data['Val'],
+            stat=data['Stat'],
+            cnting=data['Cnting'],
+            ovlch=data['OvLch'],
         )
 
     async def is_di_high(self, ch: int) -> bool:
@@ -101,8 +111,13 @@ class WISE4060:
         data = await self._get('/do_value/slot_0')
         return [
             DOChannel(
-                ch=ch['Ch'], mode=ch['Md'], val=ch['Val'], stat=ch['Stat'],
-                ps_ctn=ch['PsCtn'], ps_stop=ch['PsStop'], ps_iv=ch['PsIV'],
+                ch=ch['Ch'],
+                mode=ch['Md'],
+                val=ch['Val'],
+                stat=ch['Stat'],
+                ps_ctn=ch['PsCtn'],
+                ps_stop=ch['PsStop'],
+                ps_iv=ch['PsIV'],
             )
             for ch in data['DOVal']
         ]
@@ -110,8 +125,13 @@ class WISE4060:
     async def get_do(self, ch: int) -> DOChannel:
         data = await self._get(f'/do_value/slot_0/ch_{ch}')
         return DOChannel(
-            ch=data['Ch'], mode=data['Md'], val=data['Val'], stat=data['Stat'],
-            ps_ctn=data['PsCtn'], ps_stop=data['PsStop'], ps_iv=data['PsIV'],
+            ch=data['Ch'],
+            mode=data['Md'],
+            val=data['Val'],
+            stat=data['Stat'],
+            ps_ctn=data['PsCtn'],
+            ps_stop=data['PsStop'],
+            ps_iv=data['PsIV'],
         )
 
     async def set_do(self, ch: int, on: bool) -> None:
@@ -124,8 +144,15 @@ class WISE4060:
             '/do_value/slot_0',
             {
                 'DOVal': [
-                    {'Ch': i, 'Md': 0, 'Val': 1 if on else 0,
-                     'Stat': 1 if on else 0, 'PsCtn': 0, 'PsStop': 0, 'PsIV': 0}
+                    {
+                        'Ch': i,
+                        'Md': 0,
+                        'Val': 1 if on else 0,
+                        'Stat': 1 if on else 0,
+                        'PsCtn': 0,
+                        'PsStop': 0,
+                        'PsIV': 0,
+                    }
                     for i, on in enumerate(states)
                 ]
             },
