@@ -1,5 +1,4 @@
 import asyncio
-import time
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, List, Optional
 
@@ -16,13 +15,13 @@ class _Step:
     name: str
     perform: Callable[[ElevatorIO], Awaitable[None]]
     confirm: Optional[Callable[[ElevatorIO], Awaitable[bool]]] = None
-    timeout: float = 30.0
 
 
 @dataclass
 class RequestResult:
     connected: bool
     exclusive_granted: bool
+    cancelled: bool = False
     steps: List[tuple] = field(default_factory=list)  # (step_name, confirmed | None)
 
     @property
@@ -30,6 +29,7 @@ class RequestResult:
         return (
             self.connected
             and self.exclusive_granted
+            and not self.cancelled
             and all(confirmed is not False for _, confirmed in self.steps)
         )
 
@@ -44,7 +44,6 @@ class Elevator_Machine(StateChart):
     action(s) -> release exclusive control once all actions are done.
     """
 
-    EXCLUSIVE_CONFIRM_TIMEOUT = 10.0
     POLL_INTERVAL = 0.3
 
     disconnected = State(initial=True)
@@ -89,6 +88,7 @@ class Elevator_Machine(StateChart):
         self._connected_ok = False
         self._exclusive_ok = False
         self._step_results: List[tuple] = []
+        self._cancel_event = asyncio.Event()
         super().__init__()
 
     async def close(self) -> None:
@@ -105,47 +105,74 @@ class Elevator_Machine(StateChart):
     # ── public requests ────────────────────────────────
 
     async def go_to(
-        self, floor: Floor, wait_arrival: bool = True, arrival_timeout: float = 30.0
-    ) -> RequestResult:
+        self, floor: Floor, wait_arrival: bool = True, background: bool = False
+    ) -> Optional[RequestResult]:
         step = _Step(
             name=f'go_to_{floor.name}',
             perform=lambda io: io.go_to(floor),
             confirm=(lambda io: io.is_floor_arrived()) if wait_arrival else None,
-            timeout=arrival_timeout,
         )
-        return await self.request([step])
+        return await self.request([step], background=background)
 
-    async def hold_door(self) -> RequestResult:
-        return await self.request([_Step(name='hold_door', perform=lambda io: io.hold_door())])
-
-    async def release_door(self) -> RequestResult:
+    async def hold_door(self, background: bool = False) -> Optional[RequestResult]:
         return await self.request(
-            [_Step(name='release_door', perform=lambda io: io.release_door())]
+            [_Step(name='hold_door', perform=lambda io: io.hold_door())], background=background
         )
 
-    async def request(self, steps: List[_Step]) -> RequestResult:
-        """Run a full connect -> exclusive -> action(s) -> release cycle for the given steps."""
+    async def release_door(self, background: bool = False) -> Optional[RequestResult]:
+        return await self.request(
+            [_Step(name='release_door', perform=lambda io: io.release_door())],
+            background=background,
+        )
 
+    async def request(
+        self, steps: List[_Step], background: bool = False
+    ) -> Optional[RequestResult]:
+        """Run a full connect -> exclusive -> action(s) -> release cycle for the given steps.
+
+        If `background` is True, this only waits for the elevator connection to be
+        confirmed reachable, then lets the rest of the cycle (exclusive mode, the
+        action(s), and release) continue as a background task. Returns None in that
+        case - callers that need the outcome should use `background=False` (the default).
+        """
+        if not background:
+            return await self._run_request(steps)
+
+        await self.ensure_connected()
+        asyncio.create_task(self._run_request(steps))
+        return None
+
+    async def _run_request(self, steps: List[_Step]) -> RequestResult:
         async with self._lock:
             if self.current_state_value is None:
                 await self.activate_initial_state()
 
             self._steps = list(steps)
             self._connected_ok = False
-            self._exclusive_ok = False
+            # self._exclusive_ok = False
             self._step_results = []
+            self._cancel_event = asyncio.Event()
 
             await self.send('start_request')
 
             return RequestResult(
                 connected=self._connected_ok,
                 exclusive_granted=self._exclusive_ok,
+                cancelled=self._cancel_event.is_set(),
                 steps=list(self._step_results),
             )
+
+    async def cancel_action(self) -> None:
+        """Abort whatever the machine is currently doing or waiting on and return
+        to idle. If exclusive control had been granted, it is released as part of
+        the abort. Safe to call at any time, from any state."""
+        logger.bind(title=self.id).warning('CANCEL_ACTION received, aborting current request')
+        self._cancel_event.set()
 
     # ── state callbacks ─────────────────────────────────
 
     async def on_enter_checking_connection(self):
+        logger.bind(title=self.id).info('checking elevator connection...')
         try:
             await self.ensure_connected()
             self._connected_ok = True
@@ -153,27 +180,34 @@ class Elevator_Machine(StateChart):
         except Exception as e:
             self._connected_ok = False
             self._logged_in = False
-            logger.bind(title=self.ip).error(f'elevator connection failed: {e}')
+            logger.bind(title=self.id).error(f'elevator connection failed: {e}')
             await self.send('connection_failed')
 
     async def on_enter_requesting_exclusive(self):
+        logger.bind(title=self.id).info('requesting exclusive mode...')
         io = self.io
         await io.request_exclusive()
-        granted = await self._poll(io.is_exclusive_active, self.EXCLUSIVE_CONFIRM_TIMEOUT)
+
+        granted = await self._poll(io.is_exclusive_active)
         self._exclusive_ok = granted
         if granted:
             await self.send('exclusive_confirmed')
         else:
-            logger.bind(title=self.ip).warning('exclusive mode request was not confirmed in time')
+            if self._cancel_event.is_set():
+                logger.bind(title=self.id).info('exclusive mode request cancelled')
+            else:
+                logger.bind(title=self.id).warning('exclusive mode request was denied')
             await self.send('exclusive_denied')
 
     async def on_enter_exclusive_active(self):
-        if self._steps:
+        logger.bind(title=self.id).info('exclusive mode is active')
+        if self._steps and not self._cancel_event.is_set():
             await self.send('perform_next')
         else:
             await self.send('finish')
 
     async def on_enter_performing_action(self):
+        logger.bind(title=self.id).info('performing elevator action...')
         io = self.io
         step = self._steps.pop(0)
         await step.perform(io)
@@ -181,29 +215,33 @@ class Elevator_Machine(StateChart):
         confirmed = None
         confirm = step.confirm
         if confirm is not None:
-            confirmed = await self._poll(lambda: confirm(io), step.timeout)
+            confirmed = await self._poll(lambda: confirm(io))
             if not confirmed:
-                logger.bind(title=self.ip).warning(
-                    f'elevator action "{step.name}" was not confirmed within {step.timeout}s'
-                )
+                if self._cancel_event.is_set():
+                    logger.bind(title=self.id).info(f'elevator action "{step.name}" cancelled')
+                else:
+                    logger.bind(title=self.id).warning(
+                        f'elevator action "{step.name}" was not confirmed'
+                    )
         self._step_results.append((step.name, confirmed))
         await self.send('step_done')
 
     async def on_enter_releasing(self):
+        logger.bind(title=self.id).info('releasing exclusive mode...')
         try:
             await self.io.clear()
         except Exception as e:
-            logger.bind(title=self.ip).error(f'failed to release exclusive mode: {e}')
+            logger.bind(title=self.id).error(f'failed to release exclusive mode: {e}')
         await self.send('released')
 
-    async def _poll(self, predicate: Callable[[], Awaitable[bool]], timeout: float) -> bool:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+    async def _poll(self, predicate: Callable[[], Awaitable[bool]]) -> bool:
+        logger.bind(title=self.id).info('polling...')
+        while not self._cancel_event.is_set():
             try:
                 if await predicate():
                     return True
             except Exception as e:
-                logger.bind(title=self.ip).error(f'elevator poll failed: {e}')
+                logger.bind(title=self.id).error(f'elevator poll failed: {e}')
                 return False
             await asyncio.sleep(self.POLL_INTERVAL)
         return False

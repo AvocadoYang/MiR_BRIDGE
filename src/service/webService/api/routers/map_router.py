@@ -1,7 +1,7 @@
 from typing import List, Union
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Path, Query
 from pydantic import BaseModel, RootModel
 from pydantic import ValidationError as PydanticValidationError
 
@@ -19,7 +19,7 @@ from ...handler import (
 from ...httpx_set import headers
 from ...state import AppRequest
 
-router = APIRouter(prefix="/map", route_class=CustomSuccessRoute)
+router = APIRouter(prefix="/map", tags=['map'], route_class=CustomSuccessRoute)
 
 
 class NewPosition(BaseModel):
@@ -300,8 +300,23 @@ async def sync_map_list(request: AppRequest, serialNum: Union[str, None] = None)
     return res
 
 
-@router.get("/sync_map/{guid}", response_model=Maps)
-async def sync_map(request: AppRequest, guid: str, serialNum: Union[str, None] = None):
+@router.get(
+    "/sync_map/{guid}",
+    response_model=Maps,
+    summary='Sync a single map by GUID',
+    description=(
+        'Fetch map details for the given map GUID. If `serialNum` is omitted, '
+        'every registered AMR is tried until one of them holds the map.'
+    ),
+)
+async def sync_map(
+    request: AppRequest,
+    guid: str = Path(..., description='GUID of the map to sync, as reported by MiR.'),
+    serialNum: Union[str, None] = Query(
+        default=None,
+        description='Serial number of a specific AMR to query. If omitted, all registered AMRs are tried.',
+    ),
+):
     register_table = request.state.register_table
     targets = _resolve_target_MiRs(register_table, serialNum)
 

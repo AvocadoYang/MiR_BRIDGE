@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from reactivex import Subject
 
@@ -10,9 +11,20 @@ from src.types.equipment import ELEVATOR_TABLE
 from .api import api_router
 from .handler import (
     AppException,
+    ValidationError,
     create_error_response,
 )
 from .state import AppRequest
+
+
+def _format_validation_errors(exc: RequestValidationError) -> str:
+    """Turn pydantic's error list into a single human-readable message."""
+
+    parts = []
+    for err in exc.errors():
+        loc = '.'.join(str(p) for p in err['loc'] if p != 'body')
+        parts.append(f'{loc}: {err["msg"]}' if loc else err['msg'])
+    return '; '.join(parts) or 'Invalid request'
 
 
 class WebServer:
@@ -43,10 +55,7 @@ class WebServer:
         self._app.include_router(api_router)
 
     def set_error_handler(self):
-        @self._app.exception_handler(AppException)
-        async def app_exception_handler(request: Request, exc: AppException):
-            """Handle all custom application exceptions"""
-
+        def build_error_response(request: Request, exc: AppException) -> JSONResponse:
             # Log the error with context
             logger.bind(state=f'[{request.method}]').warning(
                 'Application error: {} - {}',
@@ -60,10 +69,24 @@ class WebServer:
                     'details': exc.details,
                 },
             )
-
             return JSONResponse(
                 status_code=exc.status_code,
                 content=create_error_response(
-                    status_code=exc.status_code, error_code=exc.error_code, message=str(exc.message)
+                    status_code=exc.status_code,
+                    error_code=exc.error_code,
+                    message=str(exc.message),
+                    details=exc.details,
                 ),
             )
+
+        @self._app.exception_handler(AppException)
+        async def app_exception_handler(request: Request, exc: AppException):
+            """Handle all custom application exceptions"""
+            return build_error_response(request, exc)
+
+        @self._app.exception_handler(RequestValidationError)
+        async def validation_exception_handler(request: Request, exc: RequestValidationError):
+            """Reuse the same response envelope for FastAPI/pydantic's own validation errors"""
+            app_exc = ValidationError(message=_format_validation_errors(exc), value=exc.errors())
+            print(app_exc, '@@@@@@@@@@@@@@')
+            return build_error_response(request, app_exc)

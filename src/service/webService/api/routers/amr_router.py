@@ -10,7 +10,7 @@ from ...handler import ConflictError, CustomSuccessRoute, NotFoundError
 from ...httpx_set import headers
 from ...state import AppRequest
 
-router = APIRouter(prefix='/amr', route_class=CustomSuccessRoute)
+router = APIRouter(prefix='/amr', tags=['amr'], route_class=CustomSuccessRoute)
 
 
 @router.get('/all_mir_amr', response_model=AMRMapResponse)

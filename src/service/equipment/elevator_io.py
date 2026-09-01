@@ -6,7 +6,6 @@ from .wise4060 import WISE4060
 class Floor(Enum):
     A = 0b0010
     B = 0b0100
-    C = 0b1000
 
 
 _DO_EXCLUSIVE_REQUEST = 0b0001
