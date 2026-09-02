@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, List, Optional
 
@@ -45,6 +46,7 @@ class Elevator_Machine(StateChart):
     """
 
     POLL_INTERVAL = 0.3
+    IO_POLL_INTERVAL = 2.0
 
     disconnected = State(initial=True)
     checking_connection = State()
@@ -89,11 +91,45 @@ class Elevator_Machine(StateChart):
         self._exclusive_ok = False
         self._step_results: List[tuple] = []
         self._cancel_event = asyncio.Event()
+
+        self.io_status: dict = {
+            'is_exclusive': False,
+            'is_door_opened': False,
+            'is_arrive_floor': False,
+        }
+        self._io_poll_task: Optional[asyncio.Task] = None
         super().__init__()
 
     async def close(self) -> None:
+        await self.stop_io_polling()
         await self.device.close()
         self._logged_in = False
+
+    # ── DI/DO polling ────────────────────────────────────
+
+    def start_io_polling(self) -> None:
+        """Start a background task that periodically reads every DI channel and
+        caches the named result on `self.io_status`. Safe to call more than once."""
+        if self._io_poll_task is not None and not self._io_poll_task.done():
+            return
+        self._io_poll_task = asyncio.create_task(self._poll_io_status_loop())
+
+    async def stop_io_polling(self) -> None:
+        if self._io_poll_task is None:
+            return
+        self._io_poll_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._io_poll_task
+        self._io_poll_task = None
+
+    async def _poll_io_status_loop(self) -> None:
+        while True:
+            try:
+                await self.ensure_connected()
+                self.io_status = await self.io.get_di_status()
+            except Exception as e:
+                logger.bind(title=self.id).error(f'failed to poll elevator IO status: {e}')
+            await asyncio.sleep(self.IO_POLL_INTERVAL)
 
     async def ensure_connected(self) -> None:
         """Log in if needed. Call before touching `self.device` directly, outside
@@ -183,6 +219,11 @@ class Elevator_Machine(StateChart):
         the abort. Safe to call at any time, from any state."""
         logger.bind(title=self.id).warning('CANCEL_ACTION received, aborting current request')
         self._cancel_event.set()
+        try:
+            await self.ensure_connected()
+            await self.io.clear()
+        except Exception as e:
+            logger.bind(title=self.id).error(f'failed to reset DO signals on cancel: {e}')
 
     # ── state callbacks ─────────────────────────────────
 

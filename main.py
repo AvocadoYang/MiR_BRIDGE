@@ -50,6 +50,7 @@ class MiR_BRIDGE:
             amrs = [amr_info['amr'] for amr_info in self.register_table.values()]
             await asyncio.gather(
                 *(amr.destroy() for amr in amrs if amr is not None),
+                *(elevator.close() for elevator in self.elevator_table.values()),
                 return_exceptions=True,
             )
             await self.rabbitmq.close()
@@ -92,9 +93,11 @@ class MiR_BRIDGE:
                 for location in locations.root:
                     if location.areaType != 'ELEVATOR' or location.ip == 'none':
                         continue
-                    self.elevator_table[location.locationId] = Elevator_Machine(
+                    elevator = Elevator_Machine(
                         locationId=location.locationId, ip=location.ip, password='kenmec'
                     )
+                    elevator.start_io_polling()
+                    self.elevator_table[location.locationId] = elevator
 
         except (httpx.HTTPStatusError, Exception) as e:
             print(e)
