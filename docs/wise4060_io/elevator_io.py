@@ -1,4 +1,5 @@
 from enum import Enum
+
 from wise4060 import WISE4060
 
 
@@ -14,6 +15,7 @@ _DO_DOOR_RELEASE = 0b0101
 
 _DI_EXCLUSIVE_ACTIVE = 0
 _DI_FLOOR_ARRIVED = 1
+_DI_DOOR_STATUS = 2
 
 
 class ElevatorIO:
@@ -41,6 +43,9 @@ class ElevatorIO:
     def is_floor_arrived(self) -> bool:
         return self._device.is_di_high(_DI_FLOOR_ARRIVED)
 
+    def is_door_open(self) -> bool:
+        return self._device.is_di_high(_DI_DOOR_STATUS)
+
     def _send(self, bits: int) -> None:
         self._device.set_all_do([(bits >> i) & 1 == 1 for i in range(4)])
 
@@ -51,7 +56,7 @@ if __name__ == '__main__':
 
     print('專屬啟動:', elevator.is_exclusive_active())
     print('到達訊號:', elevator.is_floor_arrived())
-
+    print('門開關:', elevator.is_door_open())
     elevator.request_exclusive()
     elevator.go_to(Floor.B)
     elevator.hold_door()

@@ -14,6 +14,7 @@ _DO_DOOR_RELEASE = 0b0101
 
 _DI_EXCLUSIVE_ACTIVE = 0
 _DI_FLOOR_ARRIVED = 1
+_DI_DOOR_STATUS = 2
 
 
 class ElevatorIO:
@@ -42,6 +43,9 @@ class ElevatorIO:
 
     async def is_floor_arrived(self) -> bool:
         return await self._device.is_di_high(_DI_FLOOR_ARRIVED)
+
+    async def is_door_open(self) -> bool:
+        return await self._device.is_di_high(_DI_DOOR_STATUS)
 
     async def _send(self, bits: int) -> None:
         await self._device.set_all_do([(bits >> i) & 1 == 1 for i in range(4)])

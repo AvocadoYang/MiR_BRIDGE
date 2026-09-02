@@ -43,6 +43,22 @@ async def move_elevator(request: AppRequest, payload: MoveAction):
     return {'action': 'move', **payload.model_dump()}
 
 
+class ExclusiveRequest(BaseModel):
+    exclusive: bool
+    locationId: str
+
+
+@router.post('/exclusive')
+async def request_exclusive(request: AppRequest, payload: ExclusiveRequest):
+    if payload.locationId not in request.state.elevator_table:
+        raise NotFoundError(message=f"Elevator with locationId '{payload.locationId}' not found.")
+    elevator = request.state.elevator_table[payload.locationId]
+
+    await elevator.exclusive_control(exclusive=payload.exclusive, background=True)
+
+    return {'action': 'exclusive', **payload.model_dump()}
+
+
 @router.get('/control')
 async def control(request: AppRequest):
     elevator = request.state.elevator_table['3000']

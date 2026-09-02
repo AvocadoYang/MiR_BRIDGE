@@ -52,17 +52,17 @@ class Elevator_Machine(StateChart):
     requesting_exclusive = State()
     exclusive_active = State()
     performing_action = State()
-    releasing = State()
+    # releasing = State()
 
     start_request = disconnected.to(checking_connection) | idle.to(checking_connection)
     connection_ok = checking_connection.to(requesting_exclusive)
     connection_failed = checking_connection.to(disconnected)
     exclusive_confirmed = requesting_exclusive.to(exclusive_active)
-    exclusive_denied = requesting_exclusive.to(releasing)
+    exclusive_denied = requesting_exclusive.to(idle)
     perform_next = exclusive_active.to(performing_action)
     step_done = performing_action.to(exclusive_active)
-    finish = exclusive_active.to(releasing)
-    released = releasing.to(idle)
+    finish = exclusive_active.to(idle)
+    # released = releasing.to(idle)
 
     def __init__(
         self,
@@ -103,6 +103,21 @@ class Elevator_Machine(StateChart):
             self._logged_in = True
 
     # ── public requests ────────────────────────────────
+
+    async def exclusive_control(
+        self, exclusive: bool, background: bool = False
+    ) -> Optional[RequestResult]:
+        """Request or release exclusive control of the elevator. If `exclusive` is True,
+        this requests exclusive control; if False, it releases exclusive control. If
+        `background` is True, this only waits for the elevator connection to be confirmed
+        reachable, then lets the rest of the cycle (exclusive mode, the action(s), and
+        release) continue as a background task. Returns None in that case - callers that
+        need the outcome should use `background=False` (the default)."""
+        await self.ensure_connected()
+        if exclusive:
+            asyncio.create_task(self.io.request_exclusive())
+        else:
+            asyncio.create_task(self.io.clear())
 
     async def go_to(
         self, floor: Floor, wait_arrival: bool = True, background: bool = False
@@ -171,6 +186,9 @@ class Elevator_Machine(StateChart):
 
     # ── state callbacks ─────────────────────────────────
 
+    async def on_enter_idle(self):
+        logger.bind(title=self.id).info('elevator is idle')
+
     async def on_enter_checking_connection(self):
         logger.bind(title=self.id).info('checking elevator connection...')
         try:
@@ -200,16 +218,16 @@ class Elevator_Machine(StateChart):
             await self.send('exclusive_denied')
 
     async def on_enter_exclusive_active(self):
-        logger.bind(title=self.id).info('exclusive mode is active')
+        logger.bind(title=self.id).info('check has next step...')
         if self._steps and not self._cancel_event.is_set():
             await self.send('perform_next')
         else:
             await self.send('finish')
 
     async def on_enter_performing_action(self):
-        logger.bind(title=self.id).info('performing elevator action...')
         io = self.io
         step = self._steps.pop(0)
+        logger.bind(title=self.id).info(f'performing elevator action [{step.name}]...')
         await step.perform(io)
 
         confirmed = None
@@ -226,13 +244,13 @@ class Elevator_Machine(StateChart):
         self._step_results.append((step.name, confirmed))
         await self.send('step_done')
 
-    async def on_enter_releasing(self):
-        logger.bind(title=self.id).info('releasing exclusive mode...')
-        try:
-            await self.io.clear()
-        except Exception as e:
-            logger.bind(title=self.id).error(f'failed to release exclusive mode: {e}')
-        await self.send('released')
+    # async def on_enter_releasing(self):
+    #     logger.bind(title=self.id).info('releasing exclusive mode...')
+    #     try:
+    #         await self.io.clear()
+    #     except Exception as e:
+    #         logger.bind(title=self.id).error(f'failed to release exclusive mode: {e}')
+    #     await self.send('released')
 
     async def _poll(self, predicate: Callable[[], Awaitable[bool]]) -> bool:
         logger.bind(title=self.id).info('polling...')
