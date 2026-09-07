@@ -60,6 +60,19 @@ class Send_IO_INFO(BaseModel):
     io: str
 
 
+class Send_Internal_IO(BaseModel):
+    cmd_id: str = CMD_ID.MIR_INTERNAL_IO_STATUS.value
+    module_guid: str
+    connected: bool
+    status: int
+    num_inputs: int
+    input_state: List[bool]
+    num_outputs: int
+    output_state: List[bool]
+    ip: str
+    error: str
+
+
 class Send_Ready_To_Joystick_Cmd(BaseModel):
     cmd_id: str = CMD_ID.UPDATE_READY_TO_JOYSTICK_CMD.value
     joystick_available: bool
@@ -118,6 +131,7 @@ ALL_REQUEST_MSG_FORMATE = Union[
     Send_Point_Cloud,
     Send_Ready_To_Joystick_Cmd,
     Send_Protective_Stop,
+    Send_Internal_IO,
 ]
 
 ## response fn

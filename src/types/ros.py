@@ -159,6 +159,18 @@ class SafetyStatus(TypedDict):
     hold_to_run: bool
 
 
+class InternalIOStatus(TypedDict):
+    module_guid: str
+    connected: bool
+    status: int
+    num_inputs: int
+    input_state: List[bool]
+    num_outputs: int
+    output_state: List[bool]
+    ip: str
+    error: str
+
+
 ### PointCloud
 
 

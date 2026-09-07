@@ -16,6 +16,7 @@ from src.logger import logger
 from src.service.rabbitmq import ALL_CONTROL_TYPE, CMD_ID, Rabbit_client_async
 from src.service.rabbitmq.queues import IO_EX, RES_EX
 from src.service.rabbitmq.transaction_wrapper import (
+    Send_Internal_IO,
     Send_IO_INFO,
     Send_MiR_AMR_STATUE,
     Send_Point_Cloud,
@@ -29,6 +30,7 @@ from src.types.amr import AMR_INFO, BatteryInfo, IOInfo, Twist
 from src.types.rabbitmq import PUBLISH_OPTIONS
 from src.types.ros import (
     CallService,
+    InternalIOStatus,
     LaserMapPointCloud,
     Pose,
     PublishMessage,
@@ -178,6 +180,7 @@ class Status:
                         "/robot_status",
                         "/safety_status",
                         "/PB/ready_to_send_mc_cmd",
+                        "/internal_ios/status",
                     ]
 
                     for topic in topics_to_subscribe:
@@ -379,6 +382,31 @@ class Status:
                 self.in_manual_mode = safety["in_manual_mode"]
                 self.manual_break_release_switch = safety["manual_break_release_switch"]
                 self.is_reset_allowed = safety["is_reset_allowed"]
+                return
+
+            if topic == "/internal_ios/status":
+                internal_io: InternalIOStatus = payload.get("msg")
+                internal_io_msg = Send_Internal_IO(
+                    module_guid=internal_io["module_guid"],
+                    connected=internal_io["connected"],
+                    status=internal_io["status"],
+                    num_inputs=internal_io["num_inputs"],
+                    input_state=internal_io["input_state"],
+                    num_outputs=internal_io["num_outputs"],
+                    output_state=internal_io["output_state"],
+                    ip=internal_io["ip"],
+                    error=internal_io["error"],
+                )
+
+                options = PUBLISH_OPTIONS()
+                options.expiration = 2
+                await self.rb.req_publish(
+                    exchange_name=IO_EX,
+                    routing_key=f"amr.io.{self.amr_info.amrId}.internal_io",
+                    amr_info=self.amr_info,
+                    message=internal_io_msg,
+                    options=options,
+                )
                 return
 
             if topic == "/PB/ready_to_send_mc_cmd":
