@@ -6,7 +6,6 @@ from .wise4060 import WISE4060
 class Floor(Enum):
     A = 0b0010
     B = 0b0100
-    C = 0b1000
 
 
 _DO_EXCLUSIVE_REQUEST = 0b0001
@@ -15,6 +14,13 @@ _DO_DOOR_RELEASE = 0b0101
 
 _DI_EXCLUSIVE_ACTIVE = 0
 _DI_FLOOR_ARRIVED = 1
+_DI_DOOR_STATUS = 2
+
+DI_NAMES = {
+    _DI_EXCLUSIVE_ACTIVE: '專屬控制啟動中',
+    _DI_FLOOR_ARRIVED: '樓層到達訊號',
+    _DI_DOOR_STATUS: '電梯門狀態(開)',
+}
 
 
 class ElevatorIO:
@@ -43,6 +49,19 @@ class ElevatorIO:
 
     async def is_floor_arrived(self) -> bool:
         return await self._device.is_di_high(_DI_FLOOR_ARRIVED)
+
+    async def is_door_open(self) -> bool:
+        return await self._device.is_di_high(_DI_DOOR_STATUS)
+
+    async def get_di_status(self) -> dict:
+        """Read every DI channel and return the named boolean states used by callers."""
+        di_channels = await self._device.get_all_di()
+        active = {ch.ch: ch.stat == 1 for ch in di_channels}
+        return {
+            'is_exclusive': active.get(_DI_EXCLUSIVE_ACTIVE, False),
+            'is_arrive_floor': active.get(_DI_FLOOR_ARRIVED, False),
+            'is_door_opened': active.get(_DI_DOOR_STATUS, False),
+        }
 
     async def _send(self, bits: int) -> None:
         await self._device.set_all_do([(bits >> i) & 1 == 1 for i in range(4)])

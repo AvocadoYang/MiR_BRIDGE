@@ -8,6 +8,11 @@ class REGISTER_AMR_INFO(BaseModel):
     is_enable: bool
 
 
+class REGISTER_ELEVATOR_INFO(BaseModel):
+    locationId: str
+    ip: str
+
+
 class DELETE_AMR_INFO(BaseModel):
     serialNum: str
     amrId: str
@@ -46,4 +51,13 @@ class AMRItem(BaseModel):
 
 
 class AMRMapResponse(RootModel[dict[str, AMRItem]]):
+    pass
+
+
+class ElevatorItem(BaseModel):
+    locationId: str
+    ip: str
+
+
+class ElevatorMapResponse(RootModel[dict[str, ElevatorItem]]):
     pass

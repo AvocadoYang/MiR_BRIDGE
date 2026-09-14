@@ -12,14 +12,10 @@ class Config(BaseModel):
     FILE_PATH: str = 'kenmec/'
     RABBIT_MQ_HOST: str = '127.0.0.1'
     RABBIT_MQ_PORT: int = 5672
-    RABBIT_MQ_UI_PORT: int = 15672
-    RABBIT_NODE_NAME: str
     RABBIT_MQ_USER: str
     RABBIT_MQ_PASSWORD: str
     MISSION_CONTROL_HOST: str
     MISSION_CONTROL_PORT: int
-    AMR_SERVICE_BRIDGE_HOST: str = '127.0.0.1'
-    AMR_SERVICE_BRIDGE_POST: int = 8532
     MIR_ACCOUNT: str = 'distributor'
     MIR_PASSWORD: str = 'distributor'
     ELEVATORS: List[List[str]]
