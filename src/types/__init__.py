@@ -14,6 +14,7 @@ from .map import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
 from .messages import (
     ALL_HANDSHAKE_TYPE,
     HEARTBEAT,
+    REGISTER_RESPONSE,
     Connection_Health_Res,
     Emergency_Stop,
     Heartbeat,
@@ -33,6 +34,7 @@ from .rabbitmq import (
     PublishOptions,
     Queue_Ex_Pairs,
 )
+from .return_code import REGISTER_RETURN_CODE, ReturnCode
 from .ros import Pose, Quaternion, RobotStatus, TFMessage
 from .web import (
     DELETE_AMR_INFO,
@@ -69,6 +71,7 @@ __all__ = [
     'HEARTBEAT',
     'Connection_Health_Res',
     'Register_Res',
+    'REGISTER_RESPONSE',
     'Update_Pose',
     'Emergency_Stop',
     'Write_Status',
@@ -89,6 +92,9 @@ __all__ = [
     'PUBLISH_OPTIONS',
     'PublishOptions',
     'Queue_Ex_Pairs',
+    # return_code
+    'ReturnCode',
+    'REGISTER_RETURN_CODE',
     # web
     'REGISTER_AMR_INFO',
     'DELETE_AMR_INFO',

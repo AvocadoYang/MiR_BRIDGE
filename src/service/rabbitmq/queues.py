@@ -11,6 +11,7 @@ IO_QUEUE = 'qams.io.queue'
 HEARTBEAT_PONG_QUEUE = 'qams.heartbeat.pong.queue'
 
 
+## queue
 def heartbeatPingQName(serialNum: str):
     return f'{serialNum}.heartbeat.ping.queue'
 
@@ -19,44 +20,53 @@ def heartbeatPingKey(serialNum: str):
     return f'amr.heartbeat.ping.{serialNum}'
 
 
+## queue
 def a2q_handshakeQName(serialNum: str):
-    return f'{serialNum}.qams.handshake.queue'
+    return f'{serialNum}.a2q.handshake.queue'
 
 
 def a2q_handshakeKey(serialNum: str):
     return f'qams.{serialNum}.handshake.*'
 
 
+## queue
 def q2a_handshakeQName(serialNum: str):
-    return f'{serialNum}.amr.handshake.queue'
+    return f'{serialNum}.q2a.handshake.queue'
 
 
 def q2a_handshakeKey(serialNum: str):
     return f'amr.{serialNum}.handshake.*'
 
 
+## queue
 def a2q_ResponseQName(serialNum: str):
-    return f'{serialNum}.qams.control.res.queue'
+    return f'{serialNum}.a2q.handshake.res.queue'
 
 
 def a2q_ResponseKey(serialNum: str):
     return f'qams.{serialNum}.res.*'
 
 
+## queue
 def q2a_ResponseQName(serialNum: str):
-    return f'{serialNum}.amr.handshake.res.queue'
+    return f'{serialNum}.q2a.handshake.res.queue'
 
 
 def q2a_ResponseKey(serialNum: str):
     return f'amr.{serialNum}.*.res'
 
 
+## queue
 def q2a_registerResponseQName(serialNum: str):
     return f'{serialNum}.q2a.register.res.queue'
 
 
 def q2a_registerResponseKey(serialNum: str):
     return f'amr.register.res.{serialNum}'
+
+
+def a2q_registerReqKey(serialNum: str):
+    return f'qams.register.req.{serialNum}'
 
 
 def get_all_queue_exchange_relationship(serialNum: str) -> List[Queue_Ex_Pairs]:

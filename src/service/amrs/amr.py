@@ -1,10 +1,11 @@
 import asyncio
 import contextlib
+import uuid
 from pathlib import Path
 from typing import List, Tuple, Union
 
 import httpx
-from aio_pika.abc import AbstractQueue
+from aio_pika.abc import AbstractQueue, ConsumerTag
 from pydantic import BaseModel, RootModel, ValidationError
 from reactivex import Subject, combine_latest
 from reactivex.abc import DisposableBase
@@ -14,18 +15,26 @@ from reactivex.subject import BehaviorSubject
 from src.configs import config
 from src.logger import logger
 from src.service.rabbitmq import (
+    CMD_ID,
     Rabbit_client_async,
+    dynamicListener_queues,
     fixListener_queues,
     get_all_queue_exchange_relationship,
     heartbeatPingQName,
+    q2a_handshakeQName,
     q2a_registerResponseQName,
+    q2a_ResponseQName,
 )
+from src.service.rabbitmq.queues import HANDSHAKE_EX, a2q_registerReqKey
+from src.service.rabbitmq.transaction_wrapper import Send_Register_Request
 from src.service.webService import headers
 from src.types import (
     ALL_HANDSHAKE_TYPE,
     HEARTBEAT,
-    Connection_Health_Res,
-    Register_Res,
+    PUBLISH_OPTIONS,
+    REGISTER_RESPONSE,
+    REGISTER_RETURN_CODE,
+    ReturnCode,
 )
 from src.types.amr import AMR_INFO, CONNECT_STATUS
 from src.types.map import Footprint, PeripheralType
@@ -59,9 +68,14 @@ class AMR:
         self.show_qams_connect_error_log = True
         self.got_mir_token = False  ## loop controler of mir token gettin function
 
+        ## qams register (RG) transaction state
+        self._qams_connect_in_progress: bool = False
+        self._register_request_id: Union[str, None] = None
+        self._register_response_future: Union[asyncio.Future, None] = None
+
         ## own queues
         self.queues: dict[str, AbstractQueue] = {}
-        # self.consuming_queue: dict[str, ConsumerTag] = {}
+        self.consuming_queue: dict[str, ConsumerTag] = {}
 
         self.receive_request_record: dict[str, str] = {}  ## record the last receive request
 
@@ -176,44 +190,91 @@ class AMR:
             await asyncio.sleep(3)
 
     async def connect_with_qams(self):
-        url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/amr/mir-establish-connection'
+        """
+        Entry point for a fresh QAMS (re)connection attempt over the RG (register) MQ
+        transaction. No-op if an attempt (including its internal retries) is already
+        running, so callers can invoke it freely without spawning parallel retry loops.
+        """
+        if self._qams_connect_in_progress:
+            return
+        self._qams_connect_in_progress = True
+        await self._attempt_connect_with_qams()
 
-        class Schema(BaseModel):
-            applicant: str
+    async def _attempt_connect_with_qams(self):
+        class RegisterResponsePayload(BaseModel):
+            cmd_id: str
+            id: str
+            applicant: str = ''
             amrId: str
-            session: str
-            success: bool
+            qamsSerialNum: str = ''
+            return_code: str
+            message: str = ''
+
+        request_id = str(uuid.uuid4())
+        response_future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._register_request_id = request_id
+        self._register_response_future = response_future
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url=url,
-                    json={'serialNumber': self.amr_info.mac_address},
-                    timeout=2,
-                )
-                data = Schema(**response.json())
-                if data.success:
-                    self.amr_info.session = data.session
-                    if not self.map_resource_is_init:
-                        await self.set_amr_resource()
-                    self.qams_connect_status.on_next(True)
-                    self.show_qams_connect_error_log = True
-                    return
+            options = PUBLISH_OPTIONS()
+            options.expiration = 3
+            await self.rabbit_service.req_publish(
+                exchange_name=HANDSHAKE_EX,
+                routing_key=a2q_registerReqKey(self.amr_info.mac_address),
+                amr_info=self.amr_info,
+                message=Send_Register_Request(serialNumber=self.amr_info.mac_address),
+                id=request_id,
+                options=options,
+            )
 
-        except httpx.HTTPError as e:
+            response: REGISTER_RESPONSE = await asyncio.wait_for(response_future, timeout=5)
+            if response is None:
+                raise RuntimeError('receive unexpected result')
+            payload = RegisterResponsePayload.model_validate(response['payload'])
+
+            if (
+                payload.return_code not in REGISTER_RETURN_CODE
+                or payload.return_code == ReturnCode.NOT_IN_SYSTEM_LOGIN_ERROR
+                or payload.return_code == ReturnCode.FORMAT_ERROR_LOGIN_ERROR
+            ):
+                self.qams_connect_status.on_next(False)
+                raise RuntimeError(
+                    f'register rejected by QAMS: return_code={payload.return_code}, '
+                    f'message={payload.message}'
+                )
+
+            self.amr_info.session = response['session']
+            if not self.map_resource_is_init:
+                await self.set_amr_resource()
+            self.qams_connect_status.on_next(True)
+            self.show_qams_connect_error_log = True
+            self._qams_connect_in_progress = False
+            return
+
+        except asyncio.TimeoutError:
             if self.show_qams_connect_error_log:
                 logger.bind(title=self.amr_info.amrId).error(
-                    f'QAMS request error: {e},  retry afater 3s...'
+                    'QAMS register response timeout, retry after 3s...'
                 )
                 self.show_qams_connect_error_log = False
         except ValidationError as e:
             if self.show_qams_connect_error_log:
                 logger.bind(title=self.amr_info.amrId).error(
-                    f'QAMS validate error: {e},  retry afater 3s...'
+                    f'QAMS register validate error: {e}, retry after 3s...'
                 )
                 self.show_qams_connect_error_log = False
+        except Exception as e:
+            if self.show_qams_connect_error_log:
+                logger.bind(title=self.amr_info.amrId).error(
+                    f'QAMS register error: {e}, retry after 3s...'
+                )
+                self.show_qams_connect_error_log = False
+        finally:
+            self._register_request_id = None
+            self._register_response_future = None
 
         self.qams_connect_status.on_next(False)
+        self._qams_connect_in_progress = False
         if self.start_destroy_process:
             return
         await asyncio.sleep(3)
@@ -249,18 +310,47 @@ class AMR:
                     )
 
     async def consume_dynamic_queue(self):
-        pass
+        need_consume_queues = dynamicListener_queues(self.amr_info.mac_address)
+        for queue_name in need_consume_queues:
+            if queue_name not in self.queues:
+                logger.bind(title=self.amr_info.amrId).error(
+                    f'try to consume not exist queue {queue_name}'
+                )
+                continue
+            if queue_name in self.consuming_queue:
+                logger.bind(title=self.amr_info.amrId).info(f'{queue_name} already be consume')
+
+            if queue_name == q2a_handshakeQName(self.amr_info.mac_address):
+                tag = await self.rabbit_service.consume_queue(
+                    amrId=self.amr_info.amrId,
+                    queue=self.queues[queue_name],
+                    cb=self.__handshake_consumer,
+                )
+                self.consuming_queue[queue_name] = tag
+            if queue_name == q2a_ResponseQName(self.amr_info.mac_address):
+                tag = await self.rabbit_service.consume_queue(
+                    amrId=self.amr_info.amrId,
+                    queue=self.queues[queue_name],
+                    cb=self.__response_consumer,
+                )
+                self.consuming_queue[queue_name] = tag
 
     def __heartbeat_consumer(self, msg: HEARTBEAT):
         self.receive_request_record[msg['payload']['cmd_id']] = msg['session']
         self.heartbeat_input_.on_next(msg)
 
-    def __control_consumer(self, msg: ALL_HANDSHAKE_TYPE):
+    def __handshake_consumer(self, msg: ALL_HANDSHAKE_TYPE):
         self.receive_request_record[msg['payload']['cmd_id']] = msg['session']
         self.control_transaction_input_.on_next(msg)
 
-    def __register_response_consumer(self, msg: Register_Res | Connection_Health_Res):
-        pass
+    def __register_response_consumer(self, msg: REGISTER_RESPONSE):
+        payload = msg['payload']
+        if payload.get('cmd_id') != CMD_ID.REGISTER.value:
+            return
+        if payload.get('id') != self._register_request_id:
+            return
+        if self._register_response_future is not None and not self._register_response_future.done():
+            self._register_response_future.set_result(msg)
 
     def __response_consumer(self, msg):
         pass
@@ -288,11 +378,13 @@ class AMR:
 
         if qams_connect and rabbitmq_connect and mir_service_connect:
             self.amr_info.connect_w_qams = True
+            asyncio.create_task(self.consume_dynamic_queue())
             self.heartbeat_c.start_heartbeat_watchdog.on_next(True)
             return
 
         if not rabbitmq_connect:
             self.queues.clear()
+            self.consuming_queue.clear()
         if rabbitmq_connect and (len(self.queues) == 0):
             asyncio.create_task(self.init_queues_and_bind_with_exchange())
         if not qams_connect and rabbitmq_connect and mir_service_connect:

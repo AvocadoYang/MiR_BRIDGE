@@ -106,11 +106,11 @@ class Connection_Health_Res(TypedDict):
     message: str
 
 
-# class ALL_RESPONSE_TYPE(TypedDict):
-#     id: str
-#     sender: str
-#     serialNum: str
-#     session: str
-#     flag: Literal['REQ', 'RES']
-#     amrId: str
-#     payload: Register_Res
+class REGISTER_RESPONSE(TypedDict):
+    id: str
+    sender: str
+    serialNum: str
+    session: str
+    flag: Literal['RES']
+    amrId: str
+    payload: Union[Register_Res, Connection_Health_Res]

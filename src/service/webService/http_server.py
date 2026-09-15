@@ -88,5 +88,4 @@ class WebServer:
         async def validation_exception_handler(request: Request, exc: RequestValidationError):
             """Reuse the same response envelope for FastAPI/pydantic's own validation errors"""
             app_exc = ValidationError(message=_format_validation_errors(exc), value=exc.errors())
-            print(app_exc, '@@@@@@@@@@@@@@')
             return build_error_response(request, app_exc)

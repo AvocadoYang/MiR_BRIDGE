@@ -73,6 +73,11 @@ class Send_Internal_IO(BaseModel):
     error: str
 
 
+class Send_Register_Request(BaseModel):
+    cmd_id: str = CMD_ID.REGISTER.value
+    serialNumber: str
+
+
 class Send_Ready_To_Joystick_Cmd(BaseModel):
     cmd_id: str = CMD_ID.UPDATE_READY_TO_JOYSTICK_CMD.value
     joystick_available: bool
@@ -132,6 +137,7 @@ ALL_REQUEST_MSG_FORMATE = Union[
     Send_Ready_To_Joystick_Cmd,
     Send_Protective_Stop,
     Send_Internal_IO,
+    Send_Register_Request,
 ]
 
 ## response fn

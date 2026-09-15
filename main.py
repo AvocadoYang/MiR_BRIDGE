@@ -16,7 +16,7 @@ from src.actions import ALL_Web_Action_Type
 from src.configs import config
 from src.helper.helper import format_date
 from src.logger import logger
-from src.service import AMR, Elevator_Machine, Rabbit_client_async, WebServer
+from src.service import AMR, Rabbit_client_async, WebServer
 from src.types.amr import REGISTER_TABLE
 from src.types.equipment import ELEVATOR_TABLE
 
@@ -90,14 +90,14 @@ class MiR_BRIDGE:
             async with httpx.AsyncClient() as client:
                 res = await client.get('http://127.0.0.1/api/map/resource?data=locations')
                 locations = LocationsSchema.model_validate(res.json())
-                for location in locations.root:
-                    if location.areaType != 'ELEVATOR' or location.ip == 'none':
-                        continue
-                    elevator = Elevator_Machine(
-                        locationId=location.locationId, ip=location.ip, password='kenmec'
-                    )
-                    elevator.start_io_polling()
-                    self.elevator_table[location.locationId] = elevator
+                # for location in locations.root:
+                #     if location.areaType != 'ELEVATOR' or location.ip == 'none':
+                #         continue
+                #     elevator = Elevator_Machine(
+                #         locationId=location.locationId, ip=location.ip, password='kenmec'
+                #     )
+                #     elevator.start_io_polling()
+                #     self.elevator_table[location.locationId] = elevator
 
         except (httpx.HTTPStatusError, Exception) as e:
             print(e)
