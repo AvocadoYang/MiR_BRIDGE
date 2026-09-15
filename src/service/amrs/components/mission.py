@@ -7,8 +7,8 @@ from reactivex import Subject
 from reactivex import operators as ops
 from reactivex.abc import DisposableBase
 
-from src.service.rabbitmq import ALL_CONTROL_TYPE, CMD_ID, Pure_Move_Action, Rabbit_client_async
-from src.service.rabbitmq.queues import CONTROL_EX, RES_EX
+from src.service.rabbitmq import ALL_HANDSHAKE_TYPE, CMD_ID, Pure_Move_Action, Rabbit_client_async
+from src.service.rabbitmq.queues import HANDSHAKE_EX, RES_EX
 from src.service.rabbitmq.transaction_wrapper import (
     Read_Status,
     Send_Read_Status,
@@ -34,7 +34,7 @@ class Mission:
         amr_info: AMR_INFO,
         rabbit_service: Rabbit_client_async,
         receive_request_record: dict[str, str],
-        control_transaction_sub_: Subject[ALL_CONTROL_TYPE],
+        control_transaction_sub_: Subject[ALL_HANDSHAKE_TYPE],
         amr_status_signal: Subject[str],
     ):
 
@@ -47,12 +47,12 @@ class Mission:
             control_transaction_sub_.subscribe(self.action_processor)
         ]
 
-    def action_processor(self, action: ALL_CONTROL_TYPE):
+    def action_processor(self, action: ALL_HANDSHAKE_TYPE):
         payload = action['payload']
         if payload['cmd_id'] == CMD_ID.PURE_MOVE_ACTION.value:
             asyncio.create_task(self.send_pure_move(action=action))
 
-    async def send_pure_move(self, action: ALL_CONTROL_TYPE):
+    async def send_pure_move(self, action: ALL_HANDSHAKE_TYPE):
 
         rq_payload: Pure_Move_Action = cast(Pure_Move_Action, action['payload'])
 
@@ -98,7 +98,7 @@ class Mission:
                         msg: Send_Read_Status = Send_Read_Status(read=read_status)
 
                         await self.rb.req_publish(
-                            exchange_name=CONTROL_EX,
+                            exchange_name=HANDSHAKE_EX,
                             routing_key=f'qams.{self.amr_info.mac_address}.handshake.readStatus',
                             amr_info=self.amr_info,
                             message=msg,

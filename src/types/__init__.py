@@ -12,12 +12,14 @@ from .cmd_id import CMD_ID, blacklist
 from .equipment import ELEVATOR_TABLE
 from .map import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
 from .messages import (
-    ALL_CONTROL_TYPE,
+    ALL_HANDSHAKE_TYPE,
     HEARTBEAT,
+    Connection_Health_Res,
     Emergency_Stop,
     Heartbeat,
     Payload_Base,
     Pure_Move_Action,
+    Register_Res,
     Update_Pose,
     Write_Cancel,
     Write_Status,
@@ -65,12 +67,14 @@ __all__ = [
     'Payload_Base',
     'Heartbeat',
     'HEARTBEAT',
+    'Connection_Health_Res',
+    'Register_Res',
     'Update_Pose',
     'Emergency_Stop',
     'Write_Status',
     'Write_Cancel',
     'Pure_Move_Action',
-    'ALL_CONTROL_TYPE',
+    'ALL_HANDSHAKE_TYPE',
     # mission
     'Mission_Payload',
     # ros

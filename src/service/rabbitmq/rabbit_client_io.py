@@ -20,7 +20,7 @@ from src.types.cmd_id import blacklist
 from src.types.rabbitmq import PUBLISH_OPTIONS, RABBIT_CREATE_EX_OPTION, RABBIT_CREATE_QUEUE_OPTIONS
 
 from .connect_impl import Connect_impl
-from .queues import CONTROL_EX, HEARTBEAT_EX, IO_EX, RES_EX
+from .queues import HANDSHAKE_EX, HEARTBEAT_EX, IO_EX, RES_EX
 from .transaction_wrapper import ALL_REQUEST_MSG_FORMATE, ALL_RESPONSE_MSG_FORMATE
 
 T = TypeVar('T')
@@ -49,9 +49,11 @@ class Rabbit_client_async(Connect_impl):
         assert io_ex is not None
         self._exchanges[IO_EX] = io_ex
 
-        control_ex = await self.create_exchange(CONTROL_EX, type='topic', options={'durable': True})
-        assert control_ex is not None
-        self._exchanges[CONTROL_EX] = control_ex
+        handshake_ex = await self.create_exchange(
+            HANDSHAKE_EX, type='topic', options={'durable': True}
+        )
+        assert handshake_ex is not None
+        self._exchanges[HANDSHAKE_EX] = handshake_ex
 
     async def create_exchange(
         self,

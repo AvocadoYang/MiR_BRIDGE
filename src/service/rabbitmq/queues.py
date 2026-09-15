@@ -5,7 +5,7 @@ from src.types.rabbitmq import Queue_Ex_Pairs
 HEARTBEAT_EX = 'amr.heartbeat.topic'
 RES_EX = 'amr.res.topic'
 IO_EX = 'amr.io.topic'
-CONTROL_EX = 'amr.control.topic'
+HANDSHAKE_EX = 'amr.handshake.topic'
 
 IO_QUEUE = 'qams.io.queue'
 HEARTBEAT_PONG_QUEUE = 'qams.heartbeat.pong.queue'
@@ -27,28 +27,36 @@ def a2q_handshakeKey(serialNum: str):
     return f'qams.{serialNum}.handshake.*'
 
 
-def q2a_amrResponseQName(serialNum: str):
-    return f'{serialNum}.amr.handshake.res.queue'
+def q2a_handshakeQName(serialNum: str):
+    return f'{serialNum}.amr.handshake.queue'
 
 
-def q2a_amrResponseKey(serialNum: str):
-    return f'amr.{serialNum}.*.res'
+def q2a_handshakeKey(serialNum: str):
+    return f'amr.{serialNum}.handshake.*'
 
 
-def a2q_qamsResponseQName(serialNum: str):
+def a2q_ResponseQName(serialNum: str):
     return f'{serialNum}.qams.control.res.queue'
 
 
-def a2q_qamsResponseKey(serialNum: str):
+def a2q_ResponseKey(serialNum: str):
     return f'qams.{serialNum}.res.*'
 
 
-def q2a_controlQName(serialNum: str):
-    return f'{serialNum}.amr.control.queue'
+def q2a_ResponseQName(serialNum: str):
+    return f'{serialNum}.amr.handshake.res.queue'
 
 
-def q2a_controlKey(serialNum: str):
-    return f'amr.{serialNum}.control.*'
+def q2a_ResponseKey(serialNum: str):
+    return f'amr.{serialNum}.*.res'
+
+
+def q2a_registerResponseQName(serialNum: str):
+    return f'{serialNum}.q2a.register.res.queue'
+
+
+def q2a_registerResponseKey(serialNum: str):
+    return f'amr.register.res.{serialNum}'
 
 
 def get_all_queue_exchange_relationship(serialNum: str) -> List[Queue_Ex_Pairs]:
@@ -59,33 +67,41 @@ def get_all_queue_exchange_relationship(serialNum: str) -> List[Queue_Ex_Pairs]:
             'key': heartbeatPingKey(serialNum=serialNum),
         },
         {
-            'q_name': q2a_controlQName(serialNum=serialNum),
-            'bind_ex': CONTROL_EX,
-            'key': q2a_controlKey(serialNum=serialNum),
+            'q_name': q2a_handshakeQName(serialNum=serialNum),
+            'bind_ex': HANDSHAKE_EX,
+            'key': q2a_handshakeKey(serialNum=serialNum),
         },
         {
             'q_name': a2q_handshakeQName(serialNum=serialNum),
-            'bind_ex': CONTROL_EX,
+            'bind_ex': HANDSHAKE_EX,
             'key': a2q_handshakeKey(serialNum=serialNum),
         },
         {
-            'q_name': q2a_amrResponseQName(serialNum=serialNum),
+            'q_name': q2a_ResponseQName(serialNum=serialNum),
             'bind_ex': RES_EX,
-            'key': q2a_amrResponseKey(serialNum=serialNum),
+            'key': q2a_ResponseKey(serialNum=serialNum),
         },
         {
-            'q_name': a2q_qamsResponseQName(serialNum=serialNum),
+            'q_name': a2q_ResponseQName(serialNum=serialNum),
             'bind_ex': RES_EX,
-            'key': a2q_qamsResponseKey(serialNum=serialNum),
+            'key': a2q_ResponseKey(serialNum=serialNum),
+        },
+        {
+            'q_name': q2a_registerResponseQName(serialNum),
+            'bind_ex': RES_EX,
+            'key': q2a_registerResponseKey(serialNum),
         },
     ]
 
 
+def fixListener_queues(serialNum):
+    return [heartbeatPingQName(serialNum), q2a_registerResponseQName(serialNum)]
+
+
 def dynamicListener_queues(serialNum):
     return [
-        heartbeatPingQName(serialNum=serialNum),
-        q2a_controlQName(serialNum=serialNum),
-        q2a_amrResponseQName(serialNum=serialNum),
+        q2a_handshakeQName(serialNum=serialNum),
+        q2a_ResponseQName(serialNum=serialNum),
     ]
 
 

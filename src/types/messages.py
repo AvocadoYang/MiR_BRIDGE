@@ -9,7 +9,7 @@ class Payload_Base(TypedDict):
 
 
 ###
-# All control type from QAMS
+# All handshake type from QAMS
 ###
 class Heartbeat(Payload_Base):
     cmd_id: Literal['HB']
@@ -71,7 +71,7 @@ class Joystick_Control(Payload_Base):
 # ----------
 
 
-class ALL_CONTROL_TYPE(TypedDict):
+class ALL_HANDSHAKE_TYPE(TypedDict):
     id: str
     sender: str
     serialNum: str
@@ -82,3 +82,35 @@ class ALL_CONTROL_TYPE(TypedDict):
     payload: Union[
         Update_Pose, Emergency_Stop, Write_Status, Write_Cancel, Pure_Move_Action, Joystick_Control
     ]
+
+
+###
+# All response type from QAMS
+###
+
+
+class Register_Res(TypedDict):
+    cmd_id: Literal['RG']
+    id: str
+    applicant: str
+    amrId: str
+    qamsSerialNum: str
+    return_code: str
+    message: str
+
+
+class Connection_Health_Res(TypedDict):
+    cmd_id: Literal['CH']
+    id: str
+    return_code: str
+    message: str
+
+
+# class ALL_RESPONSE_TYPE(TypedDict):
+#     id: str
+#     sender: str
+#     serialNum: str
+#     session: str
+#     flag: Literal['REQ', 'RES']
+#     amrId: str
+#     payload: Register_Res
