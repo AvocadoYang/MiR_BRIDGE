@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional
+from typing import Optional, TypedDict
 
 import aio_pika
 from aio_pika.abc import (
@@ -10,15 +10,23 @@ from reactivex.subject import Subject
 
 from src.configs import config
 from src.logger import logger
+from src.types.amr import REGISTER_TABLE
+
+
+class CreateChannelResult(TypedDict):
+    mac_address: str
+    channel: Optional[AbstractChannel]
 
 
 class Connect_impl:
     def __init__(
         self,
+        register_table: REGISTER_TABLE,
     ):
 
         self.connection: Optional[AbstractConnection] = None
-        self.channel: Optional[AbstractChannel] = None
+
+        self.register_table = register_table
 
         self._is_shutting_down: bool = False
 
@@ -41,10 +49,6 @@ class Connect_impl:
             )
             self.connection.close_callbacks.add(self._on_close)
 
-            self.channel = await self.connection.channel()
-
-            await self.channel.set_qos(prefetch_count=10)
-
             self._show_connect_logger = True
             self.rabbit_is_connect.on_next(True)
 
@@ -59,6 +63,19 @@ class Connect_impl:
                 logger.error(f'Connect failed: {e}.')
             return False
 
+    async def create_channel(self, mac_address: str) -> CreateChannelResult:
+        amrId = self.register_table[mac_address]['amrId']
+        try:
+            if self.connection is None:
+                return {'mac_address': mac_address, 'channel': None}
+            channel = await self.connection.channel()
+            channel.close_callbacks.add(self._on_close_binder(mac_address=mac_address))
+            await channel.set_qos(prefetch_count=10)
+            return {'mac_address': mac_address, 'channel': channel}
+        except Exception as e:
+            logger.bind(title=amrId).error(e)
+            return {'mac_address': mac_address, 'channel': None}
+
     async def close(self):
         self._is_shutting_down = True
         if self._reconnect_task and not self._reconnect_task.done():
@@ -70,6 +87,13 @@ class Connect_impl:
         if self.connection and not self.connection.is_closed:
             await self.connection.close()
         self._reset()
+
+    def _on_close_binder(self, mac_address: str):
+        async def _on_close_listener(sender, exc: Optional[BaseException]):
+            amrId = self.register_table[mac_address]['amrId']
+            logger.bind(title=amrId).warning(f'{mac_address} channel close with error: {exc} ')
+
+        return _on_close_listener
 
     async def _on_close(self, sender, exc: Optional[BaseException]):
         if self._is_shutting_down:
@@ -106,4 +130,3 @@ class Connect_impl:
 
     def _reset(self):
         self.connection = None
-        self.channel = None

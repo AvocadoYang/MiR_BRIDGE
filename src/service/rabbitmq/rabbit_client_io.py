@@ -1,11 +1,12 @@
 import asyncio
 import json
 import uuid
-from typing import Callable, Literal, TypeVar
+from typing import Callable, Literal, Optional, TypeVar
 
 import aiormq
 from aio_pika import DeliveryMode, Message
 from aio_pika.abc import (
+    AbstractChannel,
     AbstractExchange,
     AbstractIncomingMessage,
     AbstractQueue,
@@ -15,7 +16,7 @@ from aio_pika.abc import (
 
 from src.helper.helper import format_date
 from src.logger import heartbeat_logger, logger
-from src.types.amr import AMR_INFO
+from src.types.amr import AMR_INFO, REGISTER_TABLE
 from src.types.cmd_id import blacklist
 from src.types.rabbitmq import PUBLISH_OPTIONS, RABBIT_CREATE_EX_OPTION, RABBIT_CREATE_QUEUE_OPTIONS
 
@@ -27,49 +28,132 @@ T = TypeVar('T')
 
 
 class Rabbit_client_async(Connect_impl):
-    def __init__(self):
+    def __init__(
+        self,
+        register_table: REGISTER_TABLE,
+    ):
         self._exchanges: dict[str, AbstractExchange] = {}
-        super().__init__()
+        self._channels: dict[str, AbstractChannel] = {}
+        self._amr_exchanges: dict[str, dict[str, AbstractExchange]] = {}
+        self._channel_locks: dict[str, asyncio.Lock] = {}
+        self._system_channel: Optional[AbstractChannel] = None
+        super().__init__(register_table=register_table)
 
         self.rabbit_is_connect.subscribe(self.rabbitmq_connect_handler)
 
     async def resource_init(self):
         logger.bind(title='system').info('create RabbitMQ [EX] resource')
-        if self.channel is None or self.connection is None:
+        if self.connection is None:
             return False
-        h_ex = await self.create_exchange(HEARTBEAT_EX, type='topic', options={'durable': True})
+        try:
+            self._system_channel = await self.connection.channel()
+            await self._system_channel.set_qos(prefetch_count=10)
+        except Exception as e:
+            logger.bind(title='system').error(f'create system channel failed: {e}')
+            return False
+
+        h_ex = await self.create_exchange(
+            self._system_channel, HEARTBEAT_EX, type='topic', options={'durable': True}
+        )
         assert h_ex is not None
         self._exchanges[HEARTBEAT_EX] = h_ex
 
-        res_ex = await self.create_exchange(RES_EX, type='topic', options={'durable': True})
+        res_ex = await self.create_exchange(
+            self._system_channel, RES_EX, type='topic', options={'durable': True}
+        )
         assert res_ex is not None
         self._exchanges[RES_EX] = res_ex
 
-        io_ex = await self.create_exchange(IO_EX, type='topic', options={'durable': True})
+        io_ex = await self.create_exchange(
+            self._system_channel, IO_EX, type='topic', options={'durable': True}
+        )
         assert io_ex is not None
         self._exchanges[IO_EX] = io_ex
 
         handshake_ex = await self.create_exchange(
-            HANDSHAKE_EX, type='topic', options={'durable': True}
+            self._system_channel, HANDSHAKE_EX, type='topic', options={'durable': True}
         )
         assert handshake_ex is not None
         self._exchanges[HANDSHAKE_EX] = handshake_ex
 
+    async def get_channel(self, mac_address: str) -> Optional[AbstractChannel]:
+        """
+        get this AMR's own channel, creating and caching it on first use.
+        concurrent callers for the same mac_address (e.g. the AMR's own connect
+        handler racing a lazy publish) are serialized so the channel is only
+        ever created once.
+        """
+        channel = self._channels.get(mac_address)
+        if channel is not None and not channel.is_closed:
+            return channel
+
+        lock = self._channel_locks.setdefault(mac_address, asyncio.Lock())
+        async with lock:
+            # re-check: another caller may have created it while we awaited the lock
+            channel = self._channels.get(mac_address)
+            if channel is not None and not channel.is_closed:
+                return channel
+
+            result = await self.create_channel(mac_address=mac_address)
+            channel = result['channel']
+            if channel is None:
+                return None
+
+            channel.close_callbacks.add(self._on_amr_channel_close_binder(mac_address))
+            self._channels[mac_address] = channel
+            return channel
+
+    async def close_channel(self, mac_address: str):
+        channel = self._channels.pop(mac_address, None)
+        self._amr_exchanges.pop(mac_address, None)
+        self._channel_locks.pop(mac_address, None)
+        if channel is not None and not channel.is_closed:
+            await channel.close()
+
+    def _on_amr_channel_close_binder(self, mac_address: str):
+        async def _on_close_listener(sender, exc: Optional[BaseException]):
+            self._channels.pop(mac_address, None)
+            self._amr_exchanges.pop(mac_address, None)
+
+        return _on_close_listener
+
+    async def _get_amr_exchange(
+        self, mac_address: str, exchange_name: str
+    ) -> Optional[AbstractExchange]:
+        amr_exchanges = self._amr_exchanges.setdefault(mac_address, {})
+        if exchange_name in amr_exchanges:
+            return amr_exchanges[exchange_name]
+
+        channel = await self.get_channel(mac_address)
+        if channel is None:
+            return None
+
+        try:
+            exchange = await channel.get_exchange(exchange_name, ensure=False)
+        except Exception as e:
+            amrId = self.register_table.get(mac_address, {}).get('amrId', mac_address)
+            logger.bind(title=amrId).error(e)
+            return None
+
+        amr_exchanges[exchange_name] = exchange
+        return exchange
+
     async def create_exchange(
         self,
+        channel: AbstractChannel,
         exchange_name: str,
         type: Literal['direct', 'fanout', 'topic', 'headers'] = 'direct',
         options: RABBIT_CREATE_EX_OPTION = {},
     ):
         try:
-            if self.channel is None:
+            if channel is None:
                 raise IOError('channel is None')
 
             durable = options.get('durable', True)
             internal = options.get('internal', False)
             ex_arguments = options.get('arguments', {}).copy()
 
-            exchange = await self.channel.declare_exchange(
+            exchange = await channel.declare_exchange(
                 name=exchange_name,
                 type=type,
                 durable=durable,
@@ -93,10 +177,14 @@ class Rabbit_client_async(Connect_impl):
             logger.error(e)
 
     async def create_queue(
-        self, queue_name: str, amrId: str, options: RABBIT_CREATE_QUEUE_OPTIONS = {}
+        self,
+        channel: AbstractChannel,
+        queue_name: str,
+        amrId: str,
+        options: RABBIT_CREATE_QUEUE_OPTIONS = {},
     ):
         try:
-            if self.channel is None:
+            if channel is None:
                 raise IOError('channel is None')
             durable = options.get('durable', True)
             exclusive = options.get('exclusive', False)
@@ -107,7 +195,7 @@ class Rabbit_client_async(Connect_impl):
             if options.get('quorum'):
                 queue_arguments['x-queue-type'] = 'quorum'
 
-            queue = await self.channel.declare_queue(
+            queue = await channel.declare_queue(
                 name=queue_name,
                 durable=durable,
                 exclusive=exclusive,
@@ -128,13 +216,16 @@ class Rabbit_client_async(Connect_impl):
 
     async def create_queue_and_bind(
         self,
+        channel: AbstractChannel,
         amrId: str,
         queue_name: str,
         exchange: ExchangeParamType,
         routing_key: str,
         q_options: RABBIT_CREATE_QUEUE_OPTIONS = {},
     ):
-        queue = await self.create_queue(amrId=amrId, queue_name=queue_name, options=q_options)
+        queue = await self.create_queue(
+            channel=channel, amrId=amrId, queue_name=queue_name, options=q_options
+        )
         assert queue is not None
         await queue.bind(exchange=exchange, routing_key=routing_key)
         # logger.bind(title=amrId).info(
@@ -148,6 +239,10 @@ class Rabbit_client_async(Connect_impl):
         else:
             logger.info('delete RabbitMQ [EX] resource')
             self._exchanges.clear()
+            self._channels.clear()
+            self._amr_exchanges.clear()
+            self._channel_locks.clear()
+            self._system_channel = None
 
     async def consume_queue(
         self,
@@ -180,10 +275,15 @@ class Rabbit_client_async(Connect_impl):
                 pass
 
         tag = await queue.consume(_wrapped)
+        logger.bind(title=amrId).info(f'start consume queue [ {queue.name} ]')
         return tag
 
-    def stop_consume_queue(self):
-        pass
+    async def stop_consume_queue(self, queue: AbstractQueue, consumer_tag: ConsumerTag, amrId: str):
+        try:
+            await queue.cancel(consumer_tag)
+            logger.bind(title=amrId).info(f'stop consume queue {queue.name}')
+        except Exception as e:
+            logger.warning(f'cancel consumer {consumer_tag} failed: {e}')
 
     async def res_publish(
         self,
@@ -217,9 +317,9 @@ class Rabbit_client_async(Connect_impl):
                     DeliveryMode.PERSISTENT if options.persistent else DeliveryMode.NOT_PERSISTENT
                 ),
             )
-            if exchange_name not in self._exchanges:
+            exchange = await self._get_amr_exchange(mac_address, exchange_name)
+            if exchange is None:
                 raise IOError(f'exchange {exchange_name} is None')
-            exchange = self._exchanges[exchange_name]
             await exchange.publish(message=msg, routing_key=routing_key)
             if message.cmd_id == 'HB':
                 heartbeat_logger.bind(title=message.amrId, state='heartbeat').info(
@@ -262,9 +362,9 @@ class Rabbit_client_async(Connect_impl):
                     DeliveryMode.PERSISTENT if options.persistent else DeliveryMode.NOT_PERSISTENT
                 ),
             )
-            if exchange_name not in self._exchanges:
+            exchange = await self._get_amr_exchange(amr_info.mac_address, exchange_name)
+            if exchange is None:
                 raise IOError(f'exchange {exchange_name} is None')
-            exchange = self._exchanges[exchange_name]
             await exchange.publish(message=msg, routing_key=routing_key)
             if message.cmd_id not in blacklist:
                 logger.bind(title=amr_info.amrId).log(

@@ -1,5 +1,11 @@
 from src.types.cmd_id import CMD_ID, blacklist
-from src.types.messages import ALL_HANDSHAKE_TYPE, HEARTBEAT, Heartbeat, Pure_Move_Action
+from src.types.messages import (
+    ALL_HANDSHAKE_TYPE,
+    ALL_IO_TYPE,
+    HEARTBEAT,
+    Heartbeat,
+    Pure_Move_Action,
+)
 
 from .queues import (
     dynamicListener_queues,
@@ -7,6 +13,7 @@ from .queues import (
     get_all_queue_exchange_relationship,
     heartbeatPingQName,
     q2a_handshakeQName,
+    q2a_ioQName,
     q2a_registerResponseQName,
     q2a_ResponseQName,
 )
@@ -23,8 +30,10 @@ __all__ = [
     'heartbeatPingQName',
     'q2a_registerResponseQName',
     'q2a_handshakeQName',
+    'q2a_ioQName',
     'q2a_ResponseQName',
     'ALL_HANDSHAKE_TYPE',
+    'ALL_IO_TYPE',
     'Pure_Move_Action',
     'CMD_ID',
 ]

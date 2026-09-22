@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Tuple, Union
 
 import httpx
-from aio_pika.abc import AbstractQueue, ConsumerTag
+from aio_pika.abc import AbstractChannel, AbstractQueue, ConsumerTag
 from pydantic import BaseModel, RootModel, ValidationError
 from reactivex import Subject, combine_latest
 from reactivex.abc import DisposableBase
@@ -22,6 +22,7 @@ from src.service.rabbitmq import (
     get_all_queue_exchange_relationship,
     heartbeatPingQName,
     q2a_handshakeQName,
+    q2a_ioQName,
     q2a_registerResponseQName,
     q2a_ResponseQName,
 )
@@ -30,6 +31,7 @@ from src.service.rabbitmq.transaction_wrapper import Send_Register_Request
 from src.service.webService import headers
 from src.types import (
     ALL_HANDSHAKE_TYPE,
+    ALL_IO_TYPE,
     HEARTBEAT,
     PUBLISH_OPTIONS,
     REGISTER_RESPONSE,
@@ -73,7 +75,9 @@ class AMR:
         self._register_request_id: Union[str, None] = None
         self._register_response_future: Union[asyncio.Future, None] = None
 
-        ## own queues
+        ## own channel and queues
+        self.channel: Union[AbstractChannel, None] = None
+        self._channel_setup_in_progress: bool = False
         self.queues: dict[str, AbstractQueue] = {}
         self.consuming_queue: dict[str, ConsumerTag] = {}
 
@@ -82,6 +86,7 @@ class AMR:
         ## subjecter of action
         self.heartbeat_input_: Subject[HEARTBEAT] = Subject()
         self.control_transaction_input_: Subject[ALL_HANDSHAKE_TYPE] = Subject()
+        self.io_transaction_input_: Subject[ALL_IO_TYPE] = Subject()
 
         # Connection status tracker.
         # will connect to QAMS only when both MiR service and RabbitMQ are connected.
@@ -92,7 +97,7 @@ class AMR:
         }
         self.qams_connect_status: BehaviorSubject[bool] = BehaviorSubject(False)
         self.rb_connect_status: BehaviorSubject[bool] = BehaviorSubject(
-            False if self.rabbit_service.channel is None else True
+            False if self.rabbit_service.connection is None else True
         )
         self.mir_service_connect_status: BehaviorSubject[bool] = BehaviorSubject(False)
 
@@ -118,6 +123,7 @@ class AMR:
             mir_service_connect_status=self.mir_service_connect_status,
             rabbit_service=self.rabbit_service,
             control_transaction_sub_=self.control_transaction_input_,
+            io_transaction_sub_=self.io_transaction_input_,
         )
 
         ## mission component
@@ -149,6 +155,14 @@ class AMR:
             .subscribe(on_next=lambda connect_list: self.connect_behavior(connect_list)),
             self.heartbeat_c.qams_timeout_signal.subscribe(
                 lambda action: self.qams_connect_status.on_next(False)
+            ),
+            # own rabbitmq channel lifecycle: tied directly to the rabbitmq connect signal,
+            # independent of qams/mir_service status
+            self.rb_connect_status.pipe(distinct_until_changed()).subscribe(
+                on_next=self._handle_rb_connect_change
+            ),
+            self.qams_connect_status.pipe(distinct_until_changed()).subscribe(
+                on_next=self._handle_qams_connect_change
             ),
         ]
 
@@ -280,34 +294,99 @@ class AMR:
         await asyncio.sleep(3)
         asyncio.create_task(self.connect_with_qams())
 
-    async def init_queues_and_bind_with_exchange(self):
-        if not len(self.queues):
-            logger.bind(title=self.amr_info.amrId).info('init queue and bind with exchange')
-            queue_pairs = get_all_queue_exchange_relationship(self.amr_info.mac_address)
-            for pair in queue_pairs:
-                queue = await self.rabbit_service.create_queue_and_bind(
-                    amrId=self.amr_info.amrId,
-                    queue_name=pair['q_name'],
-                    exchange=pair['bind_ex'],
-                    routing_key=pair['key'],
-                    q_options={'durable': True},
+    def _handle_rb_connect_change(self, is_connect: bool) -> None:
+        asyncio.create_task(self._on_rabbitmq_connect_change(is_connect))
+
+    async def _on_rabbitmq_connect_change(self, is_connect: bool):
+        if is_connect:
+            await self._ensure_channel()
+        else:
+            await self._teardown_channel()
+
+    def _handle_qams_connect_change(self, is_connect: bool) -> None:
+        if not is_connect:
+            asyncio.create_task(self._stop_dynamic_consumers())
+
+    async def _stop_dynamic_consumers(self):
+        """
+        cancel the handshake/response queue consumers as soon as qams is considered
+        disconnected (e.g. heartbeat timeout), instead of silently keeping on answering
+        QAMS on a session we've already declared dead. consume_dynamic_queue()
+        re-subscribes once qams reconnects.
+        """
+        for queue_name, tag in list(self.consuming_queue.items()):
+            queue = self.queues.get(queue_name)
+            if queue is not None:
+                await self.rabbit_service.stop_consume_queue(
+                    queue=queue, consumer_tag=tag, amrId=self.amr_info.amrId
                 )
-                if queue is not None:
-                    self.queues[pair['q_name']] = queue
-            need_consume_queue = fixListener_queues(serialNum=self.amr_info.mac_address)
-            for queue_name in need_consume_queue:
-                if queue_name == heartbeatPingQName(self.amr_info.mac_address):
-                    await self.rabbit_service.consume_queue(
-                        amrId=self.amr_info.amrId,
-                        queue=self.queues[queue_name],
-                        cb=self.__heartbeat_consumer,
-                    )
-                if queue_name == q2a_registerResponseQName(self.amr_info.mac_address):
-                    await self.rabbit_service.consume_queue(
-                        amrId=self.amr_info.amrId,
-                        queue=self.queues[queue_name],
-                        cb=self.__register_response_consumer,
-                    )
+            self.consuming_queue.pop(queue_name, None)
+
+    async def _ensure_channel(self):
+        """
+        create (once) this AMR's own rabbitmq channel and bind its queues.
+        guarded so a burst of rabbitmq-connect events never creates it twice;
+        `Rabbit_client_async.get_channel` itself is also serialized per mac_address
+        as a second line of defense against concurrent callers (e.g. a lazy
+        publish racing this setup).
+        """
+        if self._channel_setup_in_progress:
+            return
+        if self.channel is not None and not self.channel.is_closed:
+            return
+        self._channel_setup_in_progress = True
+        try:
+            channel = await self.rabbit_service.get_channel(self.amr_info.mac_address)
+            if channel is None:
+                return
+            self.channel = channel
+            await self._bind_queues(channel)
+            if not self.qams_connect_status.value and self.mir_service_connect_status.value:
+                asyncio.create_task(self.connect_with_qams())
+        finally:
+            self._channel_setup_in_progress = False
+
+    async def _teardown_channel(self):
+        """
+        release this AMR's own channel and forget its queues; called whenever
+        rabbitmq disconnects, and also on AMR destroy()
+        """
+        self.queues.clear()
+        self.consuming_queue.clear()
+        if self.channel is not None:
+            await self.rabbit_service.close_channel(self.amr_info.mac_address)
+            self.channel = None
+
+    async def _bind_queues(self, channel: AbstractChannel):
+        if len(self.queues):
+            return
+        logger.bind(title=self.amr_info.amrId).info('init queue and bind with exchange')
+        queue_pairs = get_all_queue_exchange_relationship(self.amr_info.mac_address)
+        for pair in queue_pairs:
+            queue = await self.rabbit_service.create_queue_and_bind(
+                channel=channel,
+                amrId=self.amr_info.amrId,
+                queue_name=pair['q_name'],
+                exchange=pair['bind_ex'],
+                routing_key=pair['key'],
+                q_options={'durable': True},
+            )
+            if queue is not None:
+                self.queues[pair['q_name']] = queue
+        need_consume_queue = fixListener_queues(serialNum=self.amr_info.mac_address)
+        for queue_name in need_consume_queue:
+            if queue_name == heartbeatPingQName(self.amr_info.mac_address):
+                await self.rabbit_service.consume_queue(
+                    amrId=self.amr_info.amrId,
+                    queue=self.queues[queue_name],
+                    cb=self.__heartbeat_consumer,
+                )
+            if queue_name == q2a_registerResponseQName(self.amr_info.mac_address):
+                await self.rabbit_service.consume_queue(
+                    amrId=self.amr_info.amrId,
+                    queue=self.queues[queue_name],
+                    cb=self.__register_response_consumer,
+                )
 
     async def consume_dynamic_queue(self):
         need_consume_queues = dynamicListener_queues(self.amr_info.mac_address)
@@ -319,19 +398,24 @@ class AMR:
                 continue
             if queue_name in self.consuming_queue:
                 logger.bind(title=self.amr_info.amrId).info(f'{queue_name} already be consume')
+                continue
 
-            if queue_name == q2a_handshakeQName(self.amr_info.mac_address):
+            if queue_name == q2a_ioQName(self.amr_info.mac_address):
                 tag = await self.rabbit_service.consume_queue(
-                    amrId=self.amr_info.amrId,
-                    queue=self.queues[queue_name],
-                    cb=self.__handshake_consumer,
+                    amrId=self.amr_info.amrId, queue=self.queues[queue_name], cb=self.__io_consumer
                 )
-                self.consuming_queue[queue_name] = tag
             if queue_name == q2a_ResponseQName(self.amr_info.mac_address):
                 tag = await self.rabbit_service.consume_queue(
                     amrId=self.amr_info.amrId,
                     queue=self.queues[queue_name],
                     cb=self.__response_consumer,
+                )
+                self.consuming_queue[queue_name] = tag
+            if queue_name == q2a_handshakeQName(self.amr_info.mac_address):
+                tag = await self.rabbit_service.consume_queue(
+                    amrId=self.amr_info.amrId,
+                    queue=self.queues[queue_name],
+                    cb=self.__handshake_consumer,
                 )
                 self.consuming_queue[queue_name] = tag
 
@@ -351,6 +435,11 @@ class AMR:
             return
         if self._register_response_future is not None and not self._register_response_future.done():
             self._register_response_future.set_result(msg)
+
+    def __io_consumer(self, msg: ALL_IO_TYPE):
+        payload = msg['payload']
+        if payload['cmd_id'] == 'ET':
+            self.io_transaction_input_.on_next(msg)
 
     def __response_consumer(self, msg):
         pass
@@ -382,12 +471,9 @@ class AMR:
             self.heartbeat_c.start_heartbeat_watchdog.on_next(True)
             return
 
-        if not rabbitmq_connect:
-            self.queues.clear()
-            self.consuming_queue.clear()
-        if rabbitmq_connect and (len(self.queues) == 0):
-            asyncio.create_task(self.init_queues_and_bind_with_exchange())
-        if not qams_connect and rabbitmq_connect and mir_service_connect:
+        # channel/queue lifecycle is handled separately by _on_rabbitmq_connect_change,
+        # driven directly off rb_connect_status
+        if not qams_connect and rabbitmq_connect and mir_service_connect and len(self.queues):
             asyncio.create_task(self.connect_with_qams())
         else:
             self.amr_info.connect_w_qams = False
@@ -498,32 +584,6 @@ class AMR:
 
                 valid_data = ALL_Location(**locations_res.json())
 
-                ## delete all position in mir
-                # url = f'http://{self.amr_info.ip}/api/v2.0.0/positions'
-                # positions_response = await client.get(url=url, headers=headers, timeout=3)
-                # valid_all_position = ALL_POSITION_SCHEMA(positions_response.json())
-                # for position in valid_all_position.root:
-                #     delete_url = f'http://{self.amr_info.ip}/api/v2.0.0/positions/{position.guid}'
-                #     await client.delete(url=delete_url, headers=headers, timeout=3)
-                # if len(valid_data.locations) == 0:
-                #     return
-
-                # for location in valid_data.locations:
-                #     if location.areaType not in [PeripheralType.CHARGING, PeripheralType.EXTRA]:
-                #         continue
-                #     new_position = NewPosition(
-                #         guid=location.id,
-                #         name=location.locationId,
-                #         pos_x=location.x,
-                #         pos_y=location.y,
-                #         orientation=location.rotate,
-                #         type_id=PERIPHERAL_TYPE_MAP.get(location.areaType, 0),
-                #         map_id=location.map_id,
-                #         created_by_id=self.user_uuid,
-                #     )
-                #     await client.post(
-                #         url=url, headers=headers, json=new_position.model_dump(), timeout=3
-                #     )
             logger.bind(title=self.amr_info.amrId).info('resource sync successful')
 
         except (httpx.HTTPStatusError, Exception) as e:
@@ -535,10 +595,11 @@ class AMR:
             self.mir_info_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.mir_info_task
-        if self.rabbit_service.channel:
+        if self.channel is not None and not self.channel.is_closed:
             queue_pairs = get_all_queue_exchange_relationship(self.amr_info.mac_address)
             for pair in queue_pairs:
-                await self.rabbit_service.channel.queue_delete(pair['q_name'])
+                await self.channel.queue_delete(pair['q_name'])
+        await self._teardown_channel()
         for sub in self.subs:
             sub.dispose()
         await self.heartbeat_c.destroy()

@@ -13,6 +13,7 @@ from .equipment import ELEVATOR_TABLE
 from .map import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
 from .messages import (
     ALL_HANDSHAKE_TYPE,
+    ALL_IO_TYPE,
     HEARTBEAT,
     REGISTER_RESPONSE,
     Connection_Health_Res,
@@ -78,6 +79,7 @@ __all__ = [
     'Write_Cancel',
     'Pure_Move_Action',
     'ALL_HANDSHAKE_TYPE',
+    'ALL_IO_TYPE',
     # mission
     'Mission_Payload',
     # ros

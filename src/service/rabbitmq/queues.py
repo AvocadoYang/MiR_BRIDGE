@@ -9,6 +9,7 @@ HANDSHAKE_EX = 'amr.handshake.topic'
 
 IO_QUEUE = 'qams.io.queue'
 HEARTBEAT_PONG_QUEUE = 'qams.heartbeat.pong.queue'
+REGISTER_REQ_QUEUE = 'qams.register.req.queue'
 
 
 ## queue
@@ -30,21 +31,21 @@ def a2q_handshakeKey(serialNum: str):
 
 
 ## queue
-def q2a_handshakeQName(serialNum: str):
-    return f'{serialNum}.q2a.handshake.queue'
-
-
-def q2a_handshakeKey(serialNum: str):
-    return f'amr.{serialNum}.handshake.*'
-
-
-## queue
 def a2q_ResponseQName(serialNum: str):
     return f'{serialNum}.a2q.handshake.res.queue'
 
 
 def a2q_ResponseKey(serialNum: str):
     return f'qams.{serialNum}.res.*'
+
+
+## queue
+def q2a_handshakeQName(serialNum: str):
+    return f'{serialNum}.q2a.handshake.queue'
+
+
+def q2a_handshakeKey(serialNum: str):
+    return f'amr.{serialNum}.handshake.*'
 
 
 ## queue
@@ -69,6 +70,15 @@ def a2q_registerReqKey(serialNum: str):
     return f'qams.register.req.{serialNum}'
 
 
+## queue
+def q2a_ioQName(serialNum: str):
+    return f'{serialNum}.q2a.io.queue'
+
+
+def q2a_ioKey(serialNum: str):
+    return f'q2a.io.*.{serialNum}'
+
+
 def get_all_queue_exchange_relationship(serialNum: str) -> List[Queue_Ex_Pairs]:
     return [
         {
@@ -82,14 +92,14 @@ def get_all_queue_exchange_relationship(serialNum: str) -> List[Queue_Ex_Pairs]:
             'key': q2a_handshakeKey(serialNum=serialNum),
         },
         {
-            'q_name': a2q_handshakeQName(serialNum=serialNum),
-            'bind_ex': HANDSHAKE_EX,
-            'key': a2q_handshakeKey(serialNum=serialNum),
-        },
-        {
             'q_name': q2a_ResponseQName(serialNum=serialNum),
             'bind_ex': RES_EX,
             'key': q2a_ResponseKey(serialNum=serialNum),
+        },
+        {
+            'q_name': a2q_handshakeQName(serialNum=serialNum),
+            'bind_ex': HANDSHAKE_EX,
+            'key': a2q_handshakeKey(serialNum=serialNum),
         },
         {
             'q_name': a2q_ResponseQName(serialNum=serialNum),
@@ -101,6 +111,18 @@ def get_all_queue_exchange_relationship(serialNum: str) -> List[Queue_Ex_Pairs]:
             'bind_ex': RES_EX,
             'key': q2a_registerResponseKey(serialNum),
         },
+        {
+            'q_name': q2a_ioQName(serialNum=serialNum),
+            'bind_ex': IO_EX,
+            'key': q2a_ioKey(serialNum=serialNum),
+        },
+    ]
+
+
+def help2init_queue_exchange_relationship():
+    return [
+        {'q_name': HEARTBEAT_PONG_QUEUE, 'bind_ex': HEARTBEAT_EX, 'key': 'qams.heartbeat.pong.*'},
+        {'q_name': REGISTER_REQ_QUEUE, 'bind_ex': HANDSHAKE_EX, 'key': 'qams.register.req.*'},
     ]
 
 
@@ -110,8 +132,9 @@ def fixListener_queues(serialNum):
 
 def dynamicListener_queues(serialNum):
     return [
-        q2a_handshakeQName(serialNum=serialNum),
+        q2a_ioQName(serialNum=serialNum),
         q2a_ResponseQName(serialNum=serialNum),
+        q2a_handshakeQName(serialNum=serialNum),
     ]
 
 

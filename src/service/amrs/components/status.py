@@ -13,7 +13,7 @@ from reactivex.abc import DisposableBase
 from reactivex.subject import BehaviorSubject
 
 from src.logger import logger
-from src.service.rabbitmq import ALL_HANDSHAKE_TYPE, CMD_ID, Rabbit_client_async
+from src.service.rabbitmq import ALL_HANDSHAKE_TYPE, ALL_IO_TYPE, CMD_ID, Rabbit_client_async
 from src.service.rabbitmq.queues import IO_EX, RES_EX
 from src.service.rabbitmq.transaction_wrapper import (
     Send_Internal_IO,
@@ -78,6 +78,7 @@ class Status:
         receive_request_record: dict[str, str],
         rabbit_service: Rabbit_client_async,
         control_transaction_sub_: Subject[ALL_HANDSHAKE_TYPE],
+        io_transaction_sub_: Subject[ALL_IO_TYPE],
     ):
         self.amr_info = amr_info
         self.position: Pose = Pose(x=0, y=0, yaw=0)
@@ -106,7 +107,8 @@ class Status:
         self.is_reset_allowed: bool = False
 
         self.subs: List[DisposableBase] = [
-            control_transaction_sub_.subscribe(self.action_processor)
+            control_transaction_sub_.subscribe(self.action_processor),
+            io_transaction_sub_.subscribe(self.io_process),
         ]
 
     def action_processor(self, action: ALL_HANDSHAKE_TYPE):
@@ -151,6 +153,18 @@ class Status:
             asyncio.create_task(
                 self.send_joystick_command(payload['x'], payload['y'], web_session_id)
             )
+
+    def io_process(self, action: ALL_IO_TYPE):
+        payload = action['payload']
+        if payload['cmd_id'] == CMD_ID.EMERGENCY_STOP.value:
+            try:
+                data = PausePayload.model_validate_json(payload['payload'])
+                state = data.Body.StopType.value
+                asyncio.create_task(self.reset_work_status(status=state))
+            except Exception as e:
+                logger.bind(title=self.amr_info.amrId).error(
+                    f'emergency stop payload parse failed: {e}'
+                )
 
     async def ros_bridge_connect(self, mir_token: str):
         """

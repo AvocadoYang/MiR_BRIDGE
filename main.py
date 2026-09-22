@@ -26,7 +26,7 @@ class MiR_BRIDGE:
         self.register_table: REGISTER_TABLE = {}
         self.elevator_table: ELEVATOR_TABLE = {}
         self.show_sync_register_table_error_log = True
-        self.rabbitmq: Rabbit_client_async = Rabbit_client_async()
+        self.rabbitmq: Rabbit_client_async = Rabbit_client_async(self.register_table)
         self.web_server: WebServer = WebServer(
             self.service_launch, self.register_table, self.elevator_table
         )

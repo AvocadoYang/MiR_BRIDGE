@@ -32,12 +32,6 @@ class Update_Pose(Payload_Base):
 
 
 # ----------
-class Emergency_Stop(Payload_Base):
-    cmd_id: Literal['ET']
-    payload: str
-
-
-# ----------
 class Write_Status(Payload_Base):
     cmd_id: Literal['WS']
     status: Mission_Payload
@@ -79,9 +73,7 @@ class ALL_HANDSHAKE_TYPE(TypedDict):
     flag: Literal['REQ', 'RES']
     amrId: str
 
-    payload: Union[
-        Update_Pose, Emergency_Stop, Write_Status, Write_Cancel, Pure_Move_Action, Joystick_Control
-    ]
+    payload: Union[Update_Pose, Write_Status, Write_Cancel, Pure_Move_Action, Joystick_Control]
 
 
 ###
@@ -114,3 +106,24 @@ class REGISTER_RESPONSE(TypedDict):
     flag: Literal['RES']
     amrId: str
     payload: Union[Register_Res, Connection_Health_Res]
+
+
+###
+# All io type from QAMS
+###
+
+
+# ----------
+class Emergency_Stop(Payload_Base):
+    cmd_id: Literal['ET']
+    payload: str
+
+
+class ALL_IO_TYPE(TypedDict):
+    id: str
+    sender: str
+    serialNum: str
+    session: str
+    flag: Literal['REQ', 'RES']
+    amrId: str
+    payload: Emergency_Stop
