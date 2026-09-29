@@ -95,7 +95,7 @@ class Elevator_Machine(StateChart):
         self.io_status: dict = {
             'is_exclusive': False,
             'is_door_opened': False,
-            'is_arrive_floor': False,
+            'current_floor': None,
         }
         self._io_poll_task: Optional[asyncio.Task] = None
         super().__init__()
@@ -125,9 +125,14 @@ class Elevator_Machine(StateChart):
     async def _poll_io_status_loop(self) -> None:
         while True:
             try:
-                await self.ensure_connected()
+                # skip ensure_connected's check_alive probe: reading DI already proves the link,
+                # and a failure below forces a fresh login on the next round
+                if not self._logged_in:
+                    await self.device.login()
+                    self._logged_in = True
                 self.io_status = await self.io.get_di_status()
             except Exception as e:
+                self._logged_in = False
                 logger.bind(title=self.id).error(f'failed to poll elevator IO status: {e}')
             await asyncio.sleep(self.IO_POLL_INTERVAL)
 
@@ -158,16 +163,30 @@ class Elevator_Machine(StateChart):
     async def go_to(
         self, floor: Floor, wait_arrival: bool = True, background: bool = False
     ) -> Optional[RequestResult]:
+        async def arrived(io: ElevatorIO) -> bool:
+            # floor DO is held until DI reports the target floor, then dropped back to 00
+            if not await io.is_floor_arrived(floor):
+                return False
+            await io.clear_floor()
+            return True
+
         step = _Step(
             name=f'go_to_{floor.name}',
             perform=lambda io: io.go_to(floor),
-            confirm=(lambda io: io.is_floor_arrived()) if wait_arrival else None,
+            confirm=arrived if wait_arrival else None,
         )
         return await self.request([step], background=background)
 
     async def hold_door(self, background: bool = False) -> Optional[RequestResult]:
         return await self.request(
-            [_Step(name='hold_door', perform=lambda io: io.hold_door())], background=background
+            [
+                _Step(
+                    name='hold_door',
+                    perform=lambda io: io.hold_door(),
+                    confirm=lambda io: io.is_door_fully_open(),
+                )
+            ],
+            background=background,
         )
 
     async def release_door(self, background: bool = False) -> Optional[RequestResult]:

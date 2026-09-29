@@ -76,8 +76,9 @@ async def delete_elevator(request: AppRequest, locationId: str):
 
 
 _PHYSICAL_FLOOR_TO_LEVEL = {
-    '5': Floor.A,
-    '6': Floor.B,
+    '3': Floor.F3,
+    '5': Floor.F5,
+    '6': Floor.F6,
 }
 
 

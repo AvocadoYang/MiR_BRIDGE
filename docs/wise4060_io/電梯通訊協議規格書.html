@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>WISE-4060 電梯通訊協議規格書</title>
+<style>
+  @page { size: A4; margin: 16mm 16mm 18mm; }
+  :root { --navy: #1f4e79; --line: #c9d3dd; --soft: #f2f6fa; --note: #fdf6e3; --amber: #e0a100; --ro: #c0561f; --di: #217a4b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Noto Sans CJK TC", "Noto Sans TC", "Noto Serif CJK TC", sans-serif; font-size: 10.5pt; line-height: 1.65; color: #222; background: #fff; }
+  h1 { font-size: 20pt; margin: 0 0 8px; }
+  .meta { border-top: 3px solid var(--navy); padding-top: 6px; color: #555; font-size: 9.5pt; }
+  .meta span + span::before { content: "｜"; margin: 0 10px; color: #aaa; }
+  h2 { font-size: 13pt; color: var(--navy); border-left: 5px solid var(--navy); padding-left: 10px; margin: 26px 0 10px; break-after: avoid; }
+  h3 { font-size: 11pt; margin: 16px 0 6px; break-after: avoid; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; break-inside: avoid; }
+  th { background: var(--navy); color: #fff; text-align: left; font-weight: 600; padding: 6px 10px; border: 1px solid var(--navy); }
+  td { padding: 6px 10px; border: 1px solid var(--line); vertical-align: top; }
+  tbody tr:nth-child(odd) td { background: var(--soft); }
+  td.c, th.c { text-align: center; }
+  code, .mono { font-family: "Noto Sans Mono CJK TC", "Noto Sans Mono CJK SC", monospace; }
+  .bits { font-family: "Noto Sans Mono CJK TC", "Noto Sans Mono CJK SC", monospace; font-weight: 700; letter-spacing: 2px; }
+  .hi { color: #c0392b; font-weight: 700; }
+  .note { background: var(--note); border-left: 4px solid var(--amber); padding: 10px 14px; margin: 10px 0 14px; font-size: 9.5pt; break-inside: avoid; }
+  .note b:first-child { display: block; margin-bottom: 2px; }
+  .tag { display: inline-block; color: #fff; border-radius: 10px; padding: 0 8px; font-size: 9pt; font-weight: 700; margin-right: 4px; }
+  .tag.ro { background: var(--ro); } .tag.di { background: var(--di); }
+  .arch { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 12px 0; }
+  .box { border: 2px solid var(--navy); border-radius: 6px; padding: 8px 18px; text-align: center; background: var(--soft); font-weight: 700; }
+  .box small { display: block; font-weight: 400; color: #555; font-size: 8.5pt; }
+  .link { text-align: center; font-size: 8.5pt; color: #555; }
+  .link b { display: block; font-size: 14pt; color: var(--navy); }
+  ol.flow { list-style: none; padding: 0; margin: 6px 0; counter-reset: s; }
+  ol.flow li { counter-increment: s; position: relative; padding: 6px 0 6px 36px; border-bottom: 1px dashed var(--line); break-inside: avoid; }
+  ol.flow li::before { content: counter(s); position: absolute; left: 0; top: 6px; width: 24px; height: 24px; border-radius: 50%; background: var(--navy); color: #fff; text-align: center; line-height: 24px; font-size: 9pt; font-weight: 700; }
+  ol.flow b { color: var(--navy); }
+  .two { display: flex; gap: 18px; } .two > div { flex: 1; }
+  .page-break { break-before: page; }
+  footer { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 6px; text-align: center; color: #888; font-size: 8.5pt; }
+</style>
+</head>
+<body>
+
+<h1>WISE-4060 電梯通訊協議規格書</h1>
+<div class="meta">
+  <span>控制系統 ↔ WISE-4060 ↔ 電梯控制盤</span><span>訊號定義與 DI／DO 交握協議說明</span><span>修訂日期：2026-09-29</span>
+</div>
+
+<h2>一、通訊架構</h2>
+<p>WISE-4060（4 路數位輸入 DI ＋ 4 路繼電器輸出 DO 的乙太網路 I/O 模組）做為控制系統與電梯控制盤之間的訊號橋樑。控制系統不直接接線到電梯，而是透過 <b>DO（繼電器輸出）</b>送出指令，再以 <b>DI（數位輸入）</b>讀取電梯回傳的狀態接點，完成雙向交握。</p>
+<div class="arch">
+  <div class="box">控制系統<small>交管 / 上位機</small></div>
+  <div class="link"><b>⇄</b>網路通訊</div>
+  <div class="box">WISE-4060<small>DI ×4 ／ DO ×4</small></div>
+  <div class="link"><b>⇄</b>乾接點訊號線</div>
+  <div class="box">電梯控制盤</div>
+</div>
+<div class="note">
+  <b>訊號方向定義：</b>
+  · <span class="tag ro">DO</span>= 控制系統 → 電梯（命令輸出，繼電器接點）<br>
+  · <span class="tag di">DI</span>= 電梯 → 控制系統（狀態回授，讀取電梯接點）<br>
+  · 所有訊號皆為<b>保持型（準位）訊號</b>：接點導通期間代表 1、斷開代表 0，並非脈衝。<br>
+  · 本文件位元值一律由左至右寫為 <span class="bits">ch3 ch2 ch1 ch0</span>，最右邊為最低位元 ch0。
+</div>
+
+<h2>二、DO（繼電器輸出）指令協議</h2>
+<p>4 個 DO 通道（ch0〜ch3）各自獨立定義，其中 ch2、ch3 需合併判讀為目標樓層：</p>
+<table>
+  <thead><tr><th style="width:14%">通道</th><th style="width:26%">功能</th><th>1（導通）</th><th>0（斷開）</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">DO0</td><td>專屬模式申請</td><td>申請專屬模式</td><td>取消專屬模式</td></tr>
+    <tr><td class="mono">DO1</td><td>開門申請</td><td>按住開門鍵</td><td>放開開門鍵</td></tr>
+    <tr><td class="mono">DO2、DO3</td><td>目標樓層（合併判讀）</td><td colspan="2">見下方「DO 樓層編碼」</td></tr>
+  </tbody>
+</table>
+
+<h3>DO 樓層編碼（DO3、DO2）</h3>
+<table>
+  <thead><tr><th>目標樓層</th><th class="c">DO3</th><th class="c">DO2</th><th>4 位元表示（ch3〜ch0）</th></tr></thead>
+  <tbody>
+    <tr><td>無樓層指令</td><td class="c">0</td><td class="c">0</td><td class="bits">00xx</td></tr>
+    <tr><td>3 樓</td><td class="c">0</td><td class="c hi">1</td><td class="bits">01xx</td></tr>
+    <tr><td>5 樓</td><td class="c hi">1</td><td class="c">0</td><td class="bits">10xx</td></tr>
+    <tr><td>6 樓</td><td class="c hi">1</td><td class="c hi">1</td><td class="bits">11xx</td></tr>
+  </tbody>
+</table>
+
+<h3>DO 常見組合範例</h3>
+<table>
+  <thead><tr><th style="width:40%">狀態</th><th class="c">DO3</th><th class="c">DO2</th><th class="c">DO1</th><th class="c">DO0</th><th>位元值</th></tr></thead>
+  <tbody>
+    <tr><td>全部清除</td><td class="c">0</td><td class="c">0</td><td class="c">0</td><td class="c">0</td><td class="bits">0000</td></tr>
+    <tr><td>申請專屬模式</td><td class="c">0</td><td class="c">0</td><td class="c">0</td><td class="c hi">1</td><td class="bits">0001</td></tr>
+    <tr><td>專屬模式 ＋ 前往 3 樓</td><td class="c">0</td><td class="c hi">1</td><td class="c">0</td><td class="c hi">1</td><td class="bits">0101</td></tr>
+    <tr><td>專屬模式 ＋ 前往 5 樓</td><td class="c hi">1</td><td class="c">0</td><td class="c">0</td><td class="c hi">1</td><td class="bits">1001</td></tr>
+    <tr><td>專屬模式 ＋ 前往 6 樓</td><td class="c hi">1</td><td class="c hi">1</td><td class="c">0</td><td class="c hi">1</td><td class="bits">1101</td></tr>
+    <tr><td>專屬模式 ＋ 按住開門</td><td class="c">0</td><td class="c">0</td><td class="c hi">1</td><td class="c hi">1</td><td class="bits">0011</td></tr>
+  </tbody>
+</table>
+
+<h2>三、DI（數位輸入）狀態協議</h2>
+<p>4 個 DI 通道（ch0〜ch3）各自獨立定義，其中 ch2、ch3 需合併判讀為電梯目前所在樓層：</p>
+<table>
+  <thead><tr><th style="width:14%">通道</th><th style="width:26%">意義</th><th>HIGH（1）</th><th>LOW（0）</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">DI0</td><td>專屬模式狀態</td><td>專屬模式啟動中</td><td>專屬模式未啟動</td></tr>
+    <tr><td class="mono">DI1</td><td>電梯門狀態</td><td>門已完全開啟</td><td>門未完全開啟</td></tr>
+    <tr><td class="mono">DI2、DI3</td><td>目前所在樓層（合併判讀）</td><td colspan="2">見下方「DI 樓層編碼」</td></tr>
+  </tbody>
+</table>
+
+<h3>DI 樓層編碼（DI3、DI2）</h3>
+<table>
+  <thead><tr><th>所在樓層</th><th class="c">DI3</th><th class="c">DI2</th><th>4 位元表示（ch3〜ch0）</th></tr></thead>
+  <tbody>
+    <tr><td>不在上述樓層 ／ 行進中</td><td class="c">0</td><td class="c">0</td><td class="bits">00xx</td></tr>
+    <tr><td>3 樓</td><td class="c">0</td><td class="c hi">1</td><td class="bits">01xx</td></tr>
+    <tr><td>5 樓</td><td class="c hi">1</td><td class="c">0</td><td class="bits">10xx</td></tr>
+    <tr><td>6 樓</td><td class="c hi">1</td><td class="c hi">1</td><td class="bits">11xx</td></tr>
+  </tbody>
+</table>
+<div class="note">
+  <b>樓層編碼備註：</b>DO 與 DI 使用相同的樓層編碼。控制系統以「DI 所在樓層 = DO 目標樓層」判斷電梯已抵達，不另設到達訊號，因此電梯端需在<b>停妥於該樓層</b>時才輸出對應的樓層編碼，行進中請輸出 <span class="bits">00</span>。
+</div>
+
+<h2>四、交握流程範例（專屬控制 → 前往 5 樓 → 開門 → 釋放）</h2>
+<p>送出 DO 指令後，控制系統會輪詢對應的 DI，等到狀態符合或逾時才進行下一步，而不是送出 DO 就直接視為動作完成。</p>
+<ol class="flow">
+  <li><b>DO = 0001</b>：DO0 = 1，申請專屬模式</li>
+  <li><b>輪詢 DI0</b>：等待 DI0 = 1（專屬模式啟動中）才進行下一步</li>
+  <li><b>DO = 1001</b>：保持 DO0 = 1，DO3/DO2 = 10，指定前往 5 樓</li>
+  <li><b>輪詢 DI3/DI2</b>：等待 DI3/DI2 = 10（已在 5 樓）</li>
+  <li><b>DO = 0001</b>：抵達後控制系統將 DO3/DO2 歸零（00），專屬模式維持</li>
+  <li><b>DO = 0011</b>：DO1 = 1，按住開門；輪詢 DI1 = 1（門已完全開啟）</li>
+  <li><b>DO = 0001</b>：AMR 進出完成後 DO1 = 0，放開開門鍵</li>
+  <li><b>DO = 0000</b>：DO0 = 0，取消專屬模式；DI0 回到 0，結束本次交握</li>
+</ol>
+<div class="note">
+  <b>協議設計提醒：</b>每一組「命令 → 回授」控制系統皆有逾時保護。發生異常或取消時，控制系統會將 DO 全部歸零（<span class="bits">0000</span>）。
+</div>
+
+<h2>五、待電梯廠商確認事項</h2>
+<table>
+  <thead><tr><th style="width:6%" class="c">#</th><th>項目</th></tr></thead>
+  <tbody>
+    <tr><td class="c">1</td><td>DO0 = 0（未申請專屬）時，電梯是否忽略 DO1〜DO3 的指令，避免非專屬狀態下誤動作。</td></tr>
+    <tr><td class="c">2</td><td>專屬模式中 DO1 開門保持的最長時間限制，以及超時後電梯的行為。</td></tr>
+    <tr><td class="c">3</td><td>電梯停妥後，DI3/DI2 樓層編碼與 DI1 門全開訊號的輸出時序。</td></tr>
+    <tr><td class="c">4</td><td>DO 樓層編碼為未定義的組合或中途改變目標樓層時，電梯的處理方式。</td></tr>
+  </tbody>
+</table>
+
+<h2>六、附錄：WISE-4060 配線通道總覽</h2>
+<div class="two">
+  <div>
+    <h3><span class="tag di">DI</span>數位輸入（4 通道，全數使用）</h3>
+    <table>
+      <thead><tr><th style="width:26%">通道</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">DI0</td><td>專屬模式啟動中</td></tr>
+        <tr><td class="mono">DI1</td><td>門完全開啟</td></tr>
+        <tr><td class="mono">DI2</td><td>所在樓層編碼（低位元）</td></tr>
+        <tr><td class="mono">DI3</td><td>所在樓層編碼（高位元）</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div>
+    <h3><span class="tag ro">DO</span>繼電器輸出（4 通道，全數使用）</h3>
+    <table>
+      <thead><tr><th style="width:26%">通道</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">DO0</td><td>專屬模式申請</td></tr>
+        <tr><td class="mono">DO1</td><td>開門申請（按住開門）</td></tr>
+        <tr><td class="mono">DO2</td><td>目標樓層編碼（低位元）</td></tr>
+        <tr><td class="mono">DO3</td><td>目標樓層編碼（高位元）</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<footer>WISE-4060 電梯通訊協議規格書 ｜ 訊號定義與交握協議工程文件</footer>
+</body>
+</html>

@@ -17,6 +17,7 @@ from src.configs import config
 from src.helper.helper import format_date
 from src.logger import logger
 from src.service import AMR, Rabbit_client_async, WebServer
+from src.service.equipment import Elevator_Machine
 from src.types.amr import REGISTER_TABLE
 from src.types.equipment import ELEVATOR_TABLE
 
@@ -46,6 +47,10 @@ class MiR_BRIDGE:
             self.rabbitmq._trigger_reconnect()
         try:
             yield
+        except asyncio.CancelledError:
+            # force-exit (double SIGINT) skips lifespan.shutdown, then asyncio.run cancels
+            # this task; swallow it so starlette reports shutdown.complete, not a traceback
+            logger.info('lifespan cancelled during shutdown')
         finally:
             amrs = [amr_info['amr'] for amr_info in self.register_table.values()]
             await asyncio.gather(
@@ -90,14 +95,17 @@ class MiR_BRIDGE:
             async with httpx.AsyncClient() as client:
                 res = await client.get('http://127.0.0.1/api/map/resource?data=locations')
                 locations = LocationsSchema.model_validate(res.json())
-                # for location in locations.root:
-                #     if location.areaType != 'ELEVATOR' or location.ip == 'none':
-                #         continue
-                #     elevator = Elevator_Machine(
-                #         locationId=location.locationId, ip=location.ip, password='kenmec'
-                #     )
-                #     elevator.start_io_polling()
-                #     self.elevator_table[location.locationId] = elevator
+                for location in locations.root:
+                    if (
+                        location.areaType != 'MIR_VL_MARKER'
+                        and location.areaType != 'MIR_STRIPE_MARKER'
+                    ) or location.ip == 'none':
+                        continue
+                    elevator = Elevator_Machine(
+                        locationId=location.locationId, ip=location.ip, password='00000000'
+                    )
+                    elevator.start_io_polling()
+                    self.elevator_table[location.locationId] = elevator
 
         except (httpx.HTTPStatusError, Exception) as e:
             print(e)

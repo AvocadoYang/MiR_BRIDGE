@@ -13,6 +13,6 @@ MISSION_CONTROL_HOST: 127.0.0.1
 MISSION_CONTROL_PORT: 4000
 
 ELEVATORS: [
-  ["10.0.0.1", "root", 'kenmec123']
+  ["10.0.0.1", "root", '00000000']
 ]
 

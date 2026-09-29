@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import re
 from dataclasses import dataclass
@@ -42,20 +43,27 @@ class WISE4060:
         self.username = username
         self.password = password
         self.timeout = timeout
-        self._client = httpx.AsyncClient(timeout=timeout)
+        # the device's web server drops idle keep-alive connections without notice, so reusing a
+        # pooled connection fails with "Server disconnected without sending a response"
+        self._client = httpx.AsyncClient(
+            timeout=timeout, limits=httpx.Limits(max_keepalive_connections=0)
+        )
+        # the device handles very few connections at once, so requests are sent one at a time
+        self._lock = asyncio.Lock()
 
     async def login(self) -> None:
-        resp = await self._client.get(f'{self.base_url}/')
-        match = re.search(r'name="seeddata"\s*value="([^"]+)"', resp.text)
-        if not match:
-            raise RuntimeError(f'[{self.ip}] login failed: seeddata not found')
-        seeddata = match.group(1)
-        raw = f'{seeddata}:{self.username}:{self.password[:8]}'
-        authdata = hashlib.md5(raw.encode()).hexdigest()
-        await self._client.post(
-            f'{self.base_url}/index.html',
-            data={'seeddata': seeddata, 'authdata': authdata},
-        )
+        async with self._lock:
+            resp = await self._client.get(f'{self.base_url}/')
+            match = re.search(r'name="seeddata"\s*value="([^"]+)"', resp.text)
+            if not match:
+                raise RuntimeError(f'[{self.ip}] login failed: seeddata not found')
+            seeddata = match.group(1)
+            raw = f'{seeddata}:{self.username}:{self.password[:8]}'
+            authdata = hashlib.md5(raw.encode()).hexdigest()
+            await self._client.post(
+                f'{self.base_url}/index.html',
+                data={'seeddata': seeddata, 'authdata': authdata},
+            )
         if 'adamsessionid' not in self._client.cookies:
             raise RuntimeError(f'[{self.ip}] login failed: invalid username/password')
 
@@ -63,16 +71,19 @@ class WISE4060:
         await self._client.aclose()
 
     async def _get(self, path: str) -> dict:
-        resp = await self._client.get(f'{self.base_url}{path}')
+        async with self._lock:
+            resp = await self._client.get(f'{self.base_url}{path}')
         resp.raise_for_status()
         return resp.json()
 
     async def _put(self, path: str, data: dict) -> None:
-        resp = await self._client.put(f'{self.base_url}{path}', json=data)
+        async with self._lock:
+            resp = await self._client.put(f'{self.base_url}{path}', json=data)
         resp.raise_for_status()
 
     async def _patch(self, path: str, data: dict) -> None:
-        resp = await self._client.patch(f'{self.base_url}{path}', json=data)
+        async with self._lock:
+            resp = await self._client.patch(f'{self.base_url}{path}', json=data)
         resp.raise_for_status()
 
     # ── DI ──────────────────────────────────────────────
