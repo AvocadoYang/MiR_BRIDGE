@@ -4,7 +4,6 @@ from pydantic import BaseModel
 
 from src.types.cmd_id import CMD_ID
 from src.types.messages import ALL_HANDSHAKE_TYPE
-from src.types.rabbitmq import Error_Info
 from src.types.ros import PointField
 
 
@@ -96,36 +95,12 @@ class Send_Ready_To_Joystick_Cmd(BaseModel):
     ) = None
 
 
-def send_error_info(error_info: Error_Info):
-    return {'cmd_id': CMD_ID.ERROR_INFO.value, **error_info}
-
-
-def send_io_info(io: str):
-    return {'cmd_id': CMD_ID.IO_INFO.value, 'io': io}
-
-
-def send_current_id(current_id: str):
-    return {'cmd_id': CMD_ID.CURRENT_ID.value, 'currentId': current_id}
-
-
-def send_amr_is_registered(is_registered: bool):
-    return {'cmd_id': CMD_ID.REGISTERED.value, 'isRegistered': is_registered}
-
-
-def send_amr_has_mission(has_mission: bool):
-    return {'cmd_id': CMD_ID.HAS_MISSION.value, 'hasMission': has_mission}
-
-
-def send_cargo_verify(cargo_verity: str):
-    return {'cmd_id': CMD_ID.CARGO_VERITY.value, 'checkResult': cargo_verity}
-
-
-def send_cargo_info(cargo_info: str):
-    return {'cmd_id': CMD_ID.STACK_INFO.value, 'checkResult': cargo_info}
-
-
-def send_feedback(feedback_json: str):
-    return {'cmd_id': CMD_ID.FEEDBACK.value, 'feedback': feedback_json}
+class Send_CSH_ELEVATOR_STATUS(BaseModel):
+    cmd_id: str = CMD_ID.CSH_ELEVATOR_STATUS.value
+    locationId: str
+    is_exclusive: bool
+    is_door_opened: bool
+    current_floor: Union[str, None]
 
 
 ALL_REQUEST_MSG_FORMATE = Union[
@@ -138,6 +113,7 @@ ALL_REQUEST_MSG_FORMATE = Union[
     Send_Protective_Stop,
     Send_Internal_IO,
     Send_Register_Request,
+    Send_CSH_ELEVATOR_STATUS,
 ]
 
 ## response fn

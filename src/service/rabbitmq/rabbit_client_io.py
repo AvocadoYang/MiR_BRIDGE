@@ -21,7 +21,7 @@ from src.types.cmd_id import blacklist
 from src.types.rabbitmq import PUBLISH_OPTIONS, RABBIT_CREATE_EX_OPTION, RABBIT_CREATE_QUEUE_OPTIONS
 
 from .connect_impl import Connect_impl
-from .queues import HANDSHAKE_EX, HEARTBEAT_EX, IO_EX, RES_EX
+from .queues import HANDSHAKE_EX, HEARTBEAT_EX, IO_EX, RES_EX, help2init_queue_exchange_relationship
 from .transaction_wrapper import ALL_REQUEST_MSG_FORMATE, ALL_RESPONSE_MSG_FORMATE
 
 T = TypeVar('T')
@@ -75,6 +75,11 @@ class Rabbit_client_async(Connect_impl):
         )
         assert handshake_ex is not None
         self._exchanges[HANDSHAKE_EX] = handshake_ex
+
+        for help2Init in help2init_queue_exchange_relationship():
+            queue = await self.create_queue(
+                channel=self._system_channel, amrId='', queue_name=help2Init['q_name']
+            )
 
     async def get_channel(self, mac_address: str) -> Optional[AbstractChannel]:
         """
@@ -333,6 +338,48 @@ class Rabbit_client_async(Connect_impl):
         except aiormq.exceptions.PublishError as e:
             print(f'send message failed: {e}')
 
+    async def equipment_publish(
+        self,
+        exchange_name: str,
+        routing_key: str,
+        equipment_id: str,
+        message: ALL_REQUEST_MSG_FORMATE,
+        options: PUBLISH_OPTIONS = PUBLISH_OPTIONS(),
+    ):
+        """
+        publish a REQ message for equipment (e.g. elevator). unlike req_publish, equipment has no
+        mac address / session / register_table entry, so it publishes through the exchange
+        declared on the system channel instead of a per-AMR channel.
+        """
+
+        exchange = self._exchanges.get(exchange_name)
+        if exchange is None:
+            raise IOError(f'exchange {exchange_name} is not ready (rabbitmq not connected yet?)')
+
+        id = str(uuid.uuid4())
+        r_msg = {
+            'id': id,
+            'sender': 'MiR_Bridge',
+            'serialNum': equipment_id,
+            'session': '',
+            'flag': 'REQ',
+            'timestamp': format_date(),
+            'payload': {'id': id, **message.model_dump()},
+        }
+        msg = Message(
+            body=json.dumps(r_msg, ensure_ascii=False).encode('utf-8'),
+            content_type='application/json',
+            expiration=options.expiration,
+            delivery_mode=(
+                DeliveryMode.PERSISTENT if options.persistent else DeliveryMode.NOT_PERSISTENT
+            ),
+        )
+        await exchange.publish(message=msg, routing_key=routing_key)
+        if message.cmd_id not in blacklist:
+            logger.bind(title=equipment_id).log(
+                'MQ', f'Send [req] message ({message.cmd_id}) - {message.model_dump()}'
+            )
+
     async def req_publish(
         self,
         exchange_name: str,
@@ -340,9 +387,11 @@ class Rabbit_client_async(Connect_impl):
         amr_info: AMR_INFO,
         message: ALL_REQUEST_MSG_FORMATE,
         *,
-        id=str(uuid.uuid4()),
+        id: Optional[str] = None,
         options: PUBLISH_OPTIONS = PUBLISH_OPTIONS(),
     ):
+        # a str(uuid.uuid4()) default is evaluated once at definition, so every call would share it
+        id = id or str(uuid.uuid4())
         try:
             r_msg = {
                 'id': id,
@@ -363,6 +412,9 @@ class Rabbit_client_async(Connect_impl):
                 ),
             )
             exchange = await self._get_amr_exchange(amr_info.mac_address, exchange_name)
+            print(
+                exchange,
+            )
             if exchange is None:
                 raise IOError(f'exchange {exchange_name} is None')
             await exchange.publish(message=msg, routing_key=routing_key)

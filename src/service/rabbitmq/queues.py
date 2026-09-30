@@ -8,6 +8,7 @@ IO_EX = 'amr.io.topic'
 HANDSHAKE_EX = 'amr.handshake.topic'
 
 IO_QUEUE = 'qams.io.queue'
+EQUIPMENT_IO_QUEUE = 'equipment.io.queue'
 HEARTBEAT_PONG_QUEUE = 'qams.heartbeat.pong.queue'
 REGISTER_REQ_QUEUE = 'qams.register.req.queue'
 
@@ -123,6 +124,8 @@ def help2init_queue_exchange_relationship():
     return [
         {'q_name': HEARTBEAT_PONG_QUEUE, 'bind_ex': HEARTBEAT_EX, 'key': 'qams.heartbeat.pong.*'},
         {'q_name': REGISTER_REQ_QUEUE, 'bind_ex': HANDSHAKE_EX, 'key': 'qams.register.req.*'},
+        {'q_name': IO_QUEUE, 'bind_ex': IO_EX, 'key': 'amr.io.*.*'},
+        {'q_name': EQUIPMENT_IO_QUEUE, 'bind_ex': IO_EX, 'key': 'equipment.io.*.*'},
     ]
 
 

@@ -6,6 +6,9 @@ from typing import Awaitable, Callable, List, Optional
 from statemachine import State, StateChart
 
 from src.logger import logger
+from src.service.rabbitmq import Rabbit_client_async
+from src.service.rabbitmq.queues import IO_EX
+from src.service.rabbitmq.transaction_wrapper import Send_CSH_ELEVATOR_STATUS
 
 from .elevator_io import ElevatorIO, Floor
 from .wise4060 import WISE4060
@@ -70,16 +73,22 @@ class Elevator_Machine(StateChart):
         self,
         locationId: str,
         ip: str,
+        rabbit_service: Rabbit_client_async,
         username: str = 'root',
         password: str = '00000000',
         timeout: float = 3.0,
     ):
         self.id = f'elevator-{locationId}'
+        self.locationId = locationId
+        # '.' separates topic routing-key words, so one inside locationId would add a level and
+        # the key would no longer match the `equipment.io.*.*` binding
+        self._routing_id = self.id.replace('.', '_')
         logger.bind(title=self.id).info(f'create elevator instant with ip: {ip}')
         self.ip = ip
         self.username = username
         self.password = password
         self.timeout = timeout
+        self.rabbit_service = rabbit_service
 
         self.device = WISE4060(ip=ip, username=username, password=password, timeout=timeout)
         self.io = ElevatorIO(self.device)
@@ -134,6 +143,21 @@ class Elevator_Machine(StateChart):
             except Exception as e:
                 self._logged_in = False
                 logger.bind(title=self.id).error(f'failed to poll elevator IO status: {e}')
+                await asyncio.sleep(self.IO_POLL_INTERVAL)
+                continue
+
+            # a publish failure (e.g. rabbitmq not connected yet) says nothing about the device
+            # session, so it must not trigger a re-login
+            try:
+                status = Send_CSH_ELEVATOR_STATUS(locationId=self.locationId, **self.io_status)
+                await self.rabbit_service.equipment_publish(
+                    exchange_name=IO_EX,
+                    routing_key=f'equipment.io.{self._routing_id}.status',
+                    equipment_id=self.id,
+                    message=status,
+                )
+            except Exception as e:
+                logger.bind(title=self.id).error(f'failed to publish elevator IO status: {e}')
             await asyncio.sleep(self.IO_POLL_INTERVAL)
 
     async def ensure_connected(self) -> None:

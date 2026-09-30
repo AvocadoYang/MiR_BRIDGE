@@ -52,8 +52,18 @@ class WISE4060:
         self._lock = asyncio.Lock()
 
     async def login(self) -> None:
+        # the device allows only one session at a time and answers every other request with 503
+        # while it's alive, including our own GET / for a fresh seed, so reuse it if still valid
+        if 'adamsessionid' in self._client.cookies and await self.check_alive():
+            return
         async with self._lock:
+            self._client.cookies.clear()
             resp = await self._client.get(f'{self.base_url}/')
+            if resp.status_code == 503:
+                raise RuntimeError(
+                    f'[{self.ip}] login failed: device busy, another session is logged in '
+                    '(web UI or a previous process); it is released after ~3 min idle'
+                )
             match = re.search(r'name="seeddata"\s*value="([^"]+)"', resp.text)
             if not match:
                 raise RuntimeError(f'[{self.ip}] login failed: seeddata not found')
@@ -67,7 +77,19 @@ class WISE4060:
         if 'adamsessionid' not in self._client.cookies:
             raise RuntimeError(f'[{self.ip}] login failed: invalid username/password')
 
+    async def logout(self) -> None:
+        """Release the device's single session so the next login (or the web UI) isn't locked out."""
+        if 'adamsessionid' not in self._client.cookies:
+            return
+        try:
+            async with self._lock:
+                await self._client.post(f'{self.base_url}/logout', content=b'')
+        except httpx.HTTPError:
+            pass
+        self._client.cookies.clear()
+
     async def close(self) -> None:
+        await self.logout()
         await self._client.aclose()
 
     async def _get(self, path: str) -> dict:

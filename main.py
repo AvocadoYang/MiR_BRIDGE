@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 from typing import List
 
 import cowsay
-import httpx
 import requests
 import uvicorn
 from fastapi import FastAPI
@@ -55,7 +54,11 @@ class MiR_BRIDGE:
             amrs = [amr_info['amr'] for amr_info in self.register_table.values()]
             await asyncio.gather(
                 *(amr.destroy() for amr in amrs if amr is not None),
-                *(elevator.close() for elevator in self.elevator_table.values()),
+                *(
+                    info['elevator'].close()
+                    for info in self.elevator_table.values()
+                    if info['elevator'] is not None
+                ),
                 return_exceptions=True,
             )
             await self.rabbitmq.close()
@@ -80,35 +83,59 @@ class MiR_BRIDGE:
 
     async def create_elevator_instance(self):
         """
-        create instance of Elevator
+        create instance of Elevator from elevator_table and start polling its IO
         """
 
-        class Location(BaseModel):
-            locationId: str
-            ip: str
-            areaType: str
+        for locationId, elevator_info in self.elevator_table.items():
+            elevator = Elevator_Machine(
+                locationId=locationId,
+                ip=elevator_info['ip'],
+                rabbit_service=self.rabbitmq,
+            )
+            elevator_info['elevator'] = elevator
+            elevator.start_io_polling()
+            logger.bind(title=locationId).info('start polling IO...')
 
-        class LocationsSchema(RootModel[List[Location]]):
-            pass
+    def add_elevator_instance(self, locationId: str, ip: str, areaType: str):
+        elevator = Elevator_Machine(locationId=locationId, ip=ip, rabbit_service=self.rabbitmq)
+        self.elevator_table[locationId] = {
+            'locationId': locationId,
+            'ip': ip,
+            'areaType': areaType,
+            'elevator': elevator,
+        }
+        elevator.start_io_polling()
+        logger.bind(title=locationId).info('start polling IO...')
 
+    async def close_elevator_instance(self, elevator: Elevator_Machine):
         try:
-            async with httpx.AsyncClient() as client:
-                res = await client.get('http://127.0.0.1/api/map/resource?data=locations')
-                locations = LocationsSchema.model_validate(res.json())
-                for location in locations.root:
-                    if (
-                        location.areaType != 'MIR_VL_MARKER'
-                        and location.areaType != 'MIR_STRIPE_MARKER'
-                    ) or location.ip == 'none':
-                        continue
-                    elevator = Elevator_Machine(
-                        locationId=location.locationId, ip=location.ip, password='00000000'
-                    )
-                    elevator.start_io_polling()
-                    self.elevator_table[location.locationId] = elevator
+            await elevator.cancel_action()
+            await elevator.close()
+        except Exception as e:
+            logger.bind(title=elevator.id).error(f'failed to cleanly close elevator: {e}')
 
-        except (httpx.HTTPStatusError, Exception) as e:
-            print(e)
+    async def replace_elevator_instance(self, locationId: str, ip: str, areaType: str):
+        """
+        the device client is bound to the ip at construction, so an ip change needs a new instance
+        """
+
+        elevator_info = self.elevator_table.get(locationId)
+        if elevator_info is None:
+            return
+
+        old_elevator = elevator_info['elevator']
+        if old_elevator is not None:
+            await self.close_elevator_instance(old_elevator)
+        self.add_elevator_instance(locationId=locationId, ip=ip, areaType=areaType)
+        logger.bind(title=locationId).info(f'elevator instance rebuilt, now pointing at {ip}')
+
+    async def remove_elevator_instance(self, locationId: str):
+        elevator_info = self.elevator_table.pop(locationId, None)
+        if elevator_info is None:
+            return
+        if elevator_info['elevator'] is not None:
+            await self.close_elevator_instance(elevator_info['elevator'])
+        logger.bind(title=locationId).info('destroy elevator instant in system')
 
     async def replace_amr_instance(self, mac_address: str, ip: str, amrId: str, is_enable: bool):
 
@@ -146,7 +173,7 @@ class MiR_BRIDGE:
         amr.start()
         logger.bind(title=amrId).info(f'amr instance rebuilt, now pointing at {ip}')
 
-    async def sync_register_table(self):
+    def sync_register_table(self):
         """
         responsible for fetching AMR registration info; retries until successful.
         """
@@ -160,9 +187,17 @@ class MiR_BRIDGE:
         class Scheme(RootModel[List[AMR_INFO_SCHEMA]]):
             pass
 
+        class Elevator(BaseModel):
+            locationId: str
+            ip: str
+            areaType: str
+
+        class ElevatorSchema(RootModel[List[Elevator]]):
+            pass
+
         try:
-            url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/amr/mi-serial-amr'
-            response = requests.get(url)
+            amr_url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/amr/mi-serial-amr'
+            response = requests.get(amr_url)
             register_mi_amr_in_qams = response.json()
 
             valid_amr = Scheme.model_validate(register_mi_amr_in_qams)
@@ -177,11 +212,26 @@ class MiR_BRIDGE:
                     'amr': None,
                 }
 
-            tux_text = cowsay.get_output_string(
-                'tux',
-                f'AMR register info loaded successfully. \n {json.dumps(self.register_table, indent=2, ensure_ascii=False)} \n',
-            )
-            logger.opt(raw=True).info(tux_text + '\n')
+            elevator_url = f'http://{config.MISSION_CONTROL_HOST}:{config.MISSION_CONTROL_PORT}/api/map/resource?data=locations'
+            ele_response = requests.get(elevator_url)
+            register_elevator_in_qams = ele_response.json()
+            locations = ElevatorSchema.model_validate(register_elevator_in_qams)
+
+            for location in locations.root:
+                if (
+                    location.areaType != 'MIR_VL_MARKER'
+                    and location.areaType != 'MIR_STRIPE_MARKER'
+                ) or location.ip == 'none':
+                    continue
+                self.elevator_table[location.locationId] = {
+                    'locationId': location.locationId,
+                    'ip': location.ip,
+                    'areaType': location.areaType,
+                    'elevator': None,
+                }
+
+            tux_text = cowsay.get_output_string('tux', 'register info loaded successfully.')
+            logger.opt(raw=True).info(tux_text + '\n' + self._format_register_summary() + '\n')
 
             return True
         except ValidationError as e:
@@ -193,6 +243,36 @@ class MiR_BRIDGE:
                 logger.error(f'sync register table failed: {str(e)}')
                 self.show_sync_register_table_error_log = False
         return False
+
+    def _format_register_summary(self) -> str:
+        """
+        render register_table and elevator_table as plain-text tables for terminal output
+        """
+
+        def render(title: str, headers: list[str], rows: list[list[str]]) -> str:
+            widths = [max(len(str(cell)) for cell in col) for col in zip(headers, *rows)]
+
+            def line(cells: list[str]) -> str:
+                return '  '.join(str(c).ljust(w) for c, w in zip(cells, widths)).rstrip()
+
+            body = [line(row) for row in rows] or ['(none)']
+            divider = '-' * (sum(widths) + 2 * (len(widths) - 1))
+            return '\n'.join([f'[{title}] {len(rows)} registered', line(headers), divider, *body])
+
+        amr_rows = [
+            [f'[ {info["amrId"]} ]', info['ip'], info['serialNum'], str(info['is_enable'])]
+            for info in self.register_table.values()
+        ]
+        elevator_rows = [
+            [f'[ {info["locationId"]} ]', info['ip'], info['areaType']]
+            for info in self.elevator_table.values()
+        ]
+        return '\n\n'.join(
+            [
+                render('AMR', ['amrId', 'ip', 'serialNum', 'is_enable'], amr_rows),
+                render('Elevator', ['locationId', 'ip', 'areaType'], elevator_rows),
+            ]
+        )
 
     def web_server_action(self, action: ALL_Web_Action_Type):
         match action.type:
@@ -229,6 +309,22 @@ class MiR_BRIDGE:
                     asyncio.create_task(amr.destroy())
                     del self.register_table[action.mac_address]
                     logger.bind(title=action.amrId).info('destroy amr instant in system')
+                return
+            case 'ADD_ELEVATOR':
+                self.add_elevator_instance(
+                    locationId=action.locationId, ip=action.ip, areaType=action.areaType
+                )
+                return
+            case 'UPDATE_ELEVATOR':
+                asyncio.create_task(
+                    self.replace_elevator_instance(
+                        locationId=action.locationId, ip=action.ip, areaType=action.areaType
+                    )
+                )
+                return
+            case 'DELETE_ELEVATOR':
+                asyncio.create_task(self.remove_elevator_instance(action.locationId))
+                return
 
 
 if __name__ == '__main__':
@@ -246,7 +342,7 @@ if __name__ == '__main__':
 
     try:
         while not sync_register_table_success:
-            success = asyncio.run(mir_bridge.sync_register_table())
+            success = mir_bridge.sync_register_table()
             if success:
                 sync_register_table_success = True
             else:

@@ -1,8 +1,9 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from src.actions import All_Web_Action
 from src.logger import logger
-from src.service.equipment import Floor
+from src.service.equipment import Elevator_Machine, Floor
 from src.types.web import REGISTER_ELEVATOR_INFO, ElevatorMapResponse
 
 from ...handler import (
@@ -16,12 +17,19 @@ from ...state import AppRequest
 router = APIRouter(prefix='/elevator', tags=['elevator'], route_class=CustomSuccessRoute)
 
 
+def _get_elevator(request: AppRequest, locationId: str) -> Elevator_Machine:
+    info = request.state.elevator_table.get(locationId)
+    if info is None or info['elevator'] is None:
+        raise NotFoundError(message=f"Elevator with locationId '{locationId}' not found.")
+    return info['elevator']
+
+
 @router.get('/all_elevator', response_model=ElevatorMapResponse)
 async def read_all_elevators(request: AppRequest):
     res = {
         f'elevator-{locationId}': {
             'locationId': locationId,
-            'ip': info.ip,
+            'ip': info['ip'],
         }
         for locationId, info in request.state.elevator_table.items()
     }
@@ -33,12 +41,13 @@ async def create_elevator(request: AppRequest, create_info: REGISTER_ELEVATOR_IN
     if create_info.locationId in request.state.elevator_table:
         raise ConflictError(resource=create_info.locationId)
 
-    # Create a new elevator instance and add it to the elevator table
-    from src.service.equipment.elevator import Elevator_Machine
-
-    new_elevator = Elevator_Machine(locationId=create_info.locationId, ip=create_info.ip)
-    request.state.elevator_table[create_info.locationId] = new_elevator
-
+    create_payload = All_Web_Action.ADD_ELEVATOR_ACTION(
+        locationId=create_info.locationId,
+        ip=create_info.ip,
+        areaType=create_info.areaType,
+    )
+    request.state.output.on_next(create_payload)
+    logger.bind(state='[POST]').info(f'create new elevator: {create_info.model_dump_json()}')
     return create_info
 
 
@@ -49,10 +58,13 @@ async def update_elevator(request: AppRequest, update_info: REGISTER_ELEVATOR_IN
             f'can not found locationId {update_info.locationId} in elevator table',
         )
 
-    # Update the existing elevator instance
-    elevator = request.state.elevator_table[update_info.locationId]
-    elevator.ip = update_info.ip
-
+    update_payload = All_Web_Action.UPDATE_ELEVATOR_ACTION(
+        locationId=update_info.locationId,
+        ip=update_info.ip,
+        areaType=update_info.areaType,
+    )
+    request.state.output.on_next(update_payload)
+    logger.bind(state='[PUT]').info(f'update elevator: {update_info.model_dump_json()}')
     return update_info
 
 
@@ -63,15 +75,8 @@ async def delete_elevator(request: AppRequest, locationId: str):
             f'can not found locationId {locationId} in elevator table',
         )
 
-    # Remove the elevator instance from the table first so no new request can reach it,
-    # then abort whatever it was doing and release its connection/background poll task.
-    elevator = request.state.elevator_table.pop(locationId)
-    try:
-        await elevator.cancel_action()
-        await elevator.close()
-    except Exception as e:
-        logger.bind(title=elevator.id).error(f'failed to cleanly close elevator on delete: {e}')
-
+    request.state.output.on_next(All_Web_Action.DELETE_ELEVATOR_ACTION(locationId=locationId))
+    logger.bind(state='[DELETE]').info(f'delete elevator: {locationId}')
     return {'message': f'Elevator with locationId {locationId} deleted successfully.'}
 
 
@@ -89,14 +94,12 @@ class MoveAction(BaseModel):
 
 @router.post('/move')
 async def move_elevator(request: AppRequest, payload: MoveAction):
-    if payload.locationId not in request.state.elevator_table:
-        raise NotFoundError(message=f"Elevator with locationId '{payload.locationId}' not found.")
+    elevator = _get_elevator(request, payload.locationId)
 
     level = _PHYSICAL_FLOOR_TO_LEVEL.get(payload.floor)
     if level is None:
         raise NotFoundError(message=f"Unknown floor '{payload.floor}'")
 
-    elevator = request.state.elevator_table[payload.locationId]
     try:
         await elevator.go_to(floor=level, background=True)
     except Exception as e:
@@ -114,9 +117,7 @@ class ExclusiveRequest(BaseModel):
 
 @router.post('/exclusive')
 async def request_exclusive(request: AppRequest, payload: ExclusiveRequest):
-    if payload.locationId not in request.state.elevator_table:
-        raise NotFoundError(message=f"Elevator with locationId '{payload.locationId}' not found.")
-    elevator = request.state.elevator_table[payload.locationId]
+    elevator = _get_elevator(request, payload.locationId)
 
     await elevator.exclusive_control(exclusive=payload.exclusive, background=True)
 
@@ -128,16 +129,12 @@ async def get_status(request: AppRequest, locationId: str):
     """Return the elevator's most recently polled DI channel states. Values are
     cached from a background poll (every `Elevator_Machine.IO_POLL_INTERVAL`
     seconds), not read live on request."""
-    if locationId not in request.state.elevator_table:
-        raise NotFoundError(message=f"Elevator with locationId '{locationId}' not found.")
-    elevator = request.state.elevator_table[locationId]
+    elevator = _get_elevator(request, locationId)
     return {'action': 'status', 'locationId': locationId, 'io_status': elevator.io_status}
 
 
 @router.post('/cancel_action/{locationId}')
 async def cancel(request: AppRequest, locationId: str):
-    if locationId not in request.state.elevator_table:
-        raise NotFoundError(message=f"Elevator with locationId '{locationId}' not found.")
-    elevator = request.state.elevator_table[locationId]
+    elevator = _get_elevator(request, locationId)
     await elevator.cancel_action()
     return {'action': 'cancel', 'locationId': locationId}

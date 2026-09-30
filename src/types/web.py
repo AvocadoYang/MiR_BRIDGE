@@ -11,6 +11,7 @@ class REGISTER_AMR_INFO(BaseModel):
 class REGISTER_ELEVATOR_INFO(BaseModel):
     locationId: str
     ip: str
+    areaType: str = ''
 
 
 class DELETE_AMR_INFO(BaseModel):
