@@ -412,9 +412,7 @@ class Rabbit_client_async(Connect_impl):
                 ),
             )
             exchange = await self._get_amr_exchange(amr_info.mac_address, exchange_name)
-            print(
-                exchange,
-            )
+
             if exchange is None:
                 raise IOError(f'exchange {exchange_name} is None')
             await exchange.publish(message=msg, routing_key=routing_key)
