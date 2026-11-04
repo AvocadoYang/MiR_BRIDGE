@@ -230,6 +230,10 @@ class AMR:
         self._register_response_future = response_future
 
         try:
+            # registering would mark the vehicle online in QAMS, so wait until the MiR answers
+            if not await self.heartbeat_c.is_mir_reachable():
+                raise RuntimeError(f'MiR {self.amr_info.ip} is unreachable')
+
             options = PUBLISH_OPTIONS()
             options.expiration = 3
             await self.rabbit_service.req_publish(

@@ -54,14 +54,21 @@ class Heartbeat:
             self.wait_heartbeat_response(res_heartbeat=res_heartbeat, action=action)
         )
 
-    async def wait_heartbeat_response(self, res_heartbeat: int, action: HEARTBEAT):
+    async def is_mir_reachable(self) -> bool:
         try:
             async with httpx.AsyncClient() as client:
                 url = f'http://{self.amr_info.ip}/api/v2.0.0/users/me'
                 await client.get(url=url, headers=headers, timeout=2)
-                self.__heartbeat_timer_update.on_next(True)
-        except (httpx.HTTPStatusError, Exception):
-            pass
+            return True
+        except Exception:
+            return False
+
+    async def wait_heartbeat_response(self, res_heartbeat: int, action: HEARTBEAT):
+        # no pong while the MiR is unreachable: QAMS treats the missing pongs as this
+        # vehicle being offline, which is what its online/offline status should mean
+        if not await self.is_mir_reachable():
+            return
+        self.__heartbeat_timer_update.on_next(True)
         payload = action['payload']
         heartbeat_res = Heartbeat_Response(
             id=payload['id'],
