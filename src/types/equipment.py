@@ -1,14 +1,16 @@
-from typing import TYPE_CHECKING, TypedDict, Union
+from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
-    from src.service.equipment import Elevator_Machine
+    from src.service.equipment import Wise_Module
 
 
-class ELEVATOR_REGISTER_INFO(TypedDict):
-    locationId: str
+class ADVANTECH_REGISTER_INFO(TypedDict):
+    """one row of QAMS advantechWish: a WISE-4000 module the bridge keeps a session with"""
+
+    id: str
+    name: str
     ip: str
-    areaType: str
-    elevator: Union['Elevator_Machine', None]
+    module: 'Wise_Module'
 
 
-ELEVATOR_TABLE = dict[str, ELEVATOR_REGISTER_INFO]
+ADVANTECH_TABLE = dict[str, ADVANTECH_REGISTER_INFO]

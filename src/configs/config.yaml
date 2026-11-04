@@ -12,7 +12,7 @@ RABBIT_MQ_PASSWORD: kenmec
 MISSION_CONTROL_HOST: 127.0.0.1
 MISSION_CONTROL_PORT: 4000
 
-ELEVATORS: [
-  ["10.0.0.1", "root", '00000000']
-]
+# WISE-4000 (advantech 4000 serial) web login, shared by every module
+WISE_USERNAME: root
+WISE_PASSWORD: '00000000'
 

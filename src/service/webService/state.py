@@ -6,7 +6,7 @@ from starlette.datastructures import State
 
 from src.actions import ALL_Web_Action_Type
 from src.types.amr import REGISTER_TABLE
-from src.types.equipment import ELEVATOR_TABLE
+from src.types.equipment import ADVANTECH_TABLE
 
 
 class AppState(State):
@@ -14,7 +14,7 @@ class AppState(State):
     `State` object still backs it at runtime)."""
 
     register_table: REGISTER_TABLE
-    elevator_table: ELEVATOR_TABLE
+    advantech_table: ADVANTECH_TABLE
     output: Subject[ALL_Web_Action_Type]
 
 

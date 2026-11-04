@@ -95,12 +95,16 @@ class Send_Ready_To_Joystick_Cmd(BaseModel):
     ) = None
 
 
-class Send_CSH_ELEVATOR_STATUS(BaseModel):
-    cmd_id: str = CMD_ID.CSH_ELEVATOR_STATUS.value
-    locationId: str
-    is_exclusive: bool
-    is_door_opened: bool
-    current_floor: Union[str, None]
+class Send_Advantech_IO_Status(BaseModel):
+    """one WISE module's IO, sent every poll so QAMS can tell a dead bridge from a quiet one"""
+
+    cmd_id: str = CMD_ID.ADVANTECH_IO_STATUS.value
+    moduleId: str
+    ip: str
+    connected: bool
+    di: List[bool]
+    do: List[bool]
+    error: str = ''
 
 
 ALL_REQUEST_MSG_FORMATE = Union[
@@ -113,7 +117,7 @@ ALL_REQUEST_MSG_FORMATE = Union[
     Send_Protective_Stop,
     Send_Internal_IO,
     Send_Register_Request,
-    Send_CSH_ELEVATOR_STATUS,
+    Send_Advantech_IO_Status,
 ]
 
 ## response fn

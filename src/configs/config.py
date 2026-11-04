@@ -1,5 +1,4 @@
 import pathlib
-from typing import List
 
 import yaml
 from loguru import logger
@@ -18,7 +17,9 @@ class Config(BaseModel):
     MISSION_CONTROL_PORT: int
     MIR_ACCOUNT: str = 'distributor'
     MIR_PASSWORD: str = 'distributor'
-    ELEVATORS: List[List[str]]
+    # WISE-4000 web login; every module on site shares the same account
+    WISE_USERNAME: str = 'root'
+    WISE_PASSWORD: str = '00000000'
 
 
 def _load_yml_config(path: pathlib.Path):

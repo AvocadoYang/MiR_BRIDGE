@@ -6,7 +6,7 @@ from reactivex import Subject
 from src.actions import ALL_Web_Action_Type
 from src.logger import logger
 from src.types.amr import REGISTER_TABLE
-from src.types.equipment import ELEVATOR_TABLE
+from src.types.equipment import ADVANTECH_TABLE
 
 from .api import api_router
 from .handler import (
@@ -32,19 +32,19 @@ class WebServer:
         self,
         register,
         register_table: REGISTER_TABLE,
-        elevator_table: ELEVATOR_TABLE,
+        advantech_table: ADVANTECH_TABLE,
     ):
         self.output = Subject[ALL_Web_Action_Type]()
 
         self.register_table: REGISTER_TABLE = register_table
-        self.elevator_table: ELEVATOR_TABLE = elevator_table
+        self.advantech_table: ADVANTECH_TABLE = advantech_table
         self._app = FastAPI(lifespan=register)
         self.set_error_handler()
 
         @self._app.middleware('http')
         async def add_state_middleware(request: AppRequest, call_next):
             request.state.register_table = self.register_table
-            request.state.elevator_table = self.elevator_table
+            request.state.advantech_table = self.advantech_table
             request.state.output = self.output
             response = await call_next(request)
             return response

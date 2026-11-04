@@ -9,7 +9,7 @@ from .amr import (
     Twist,
 )
 from .cmd_id import CMD_ID, blacklist
-from .equipment import ELEVATOR_TABLE
+from .equipment import ADVANTECH_TABLE
 from .map import PERIPHERAL_TYPE_MAP, Footprint, PeripheralType
 from .messages import (
     ALL_HANDSHAKE_TYPE,
@@ -61,7 +61,7 @@ __all__ = [
     'CMD_ID',
     'blacklist',
     # equipment
-    'ELEVATOR_TABLE',
+    'ADVANTECH_TABLE',
     # map
     'PeripheralType',
     'PERIPHERAL_TYPE_MAP',
